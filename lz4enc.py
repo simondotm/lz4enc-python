@@ -95,7 +95,7 @@ class SmallLZ4():
   #/// input buffer size, can be any number but zero ;-)
   BufferSize     = 64*1024
   #/// maximum match distance
-  MaxDistance    =   65535
+  MaxDistance    = 65535
   #/// marker for "no match"
   NoPrevious     =       0
   #/// stop match finding after MaxChainLength steps (default is unlimited => optimal parsing)
@@ -127,7 +127,7 @@ class SmallLZ4():
 
     #/// true, if long enough
     def isMatch(self):
-      return self.length >= SmallLZ4.MinMatch;
+      return self.length >= SmallLZ4.MinMatch
 
 
   
@@ -636,6 +636,7 @@ class SmallLZ4():
       #// find longest matches for each position
       #for (int i = lookback; i < (int)blockSize; i++)
       for i in range(lookback, blockSize):
+
         #// no matches at the end of the block (or matching disabled by command-line option -0 )
         if (i + self.BlockEndNoMatch > blockSize or uncompressed):
           continue
@@ -897,8 +898,8 @@ def main():
     sys.exit()
 
 
-  src = argv[1] # "test.vgm"
-  compression_level = 8
+  src = argv[1] 
+  compression_level = 9
   dst = src + ".lz4"
 
 

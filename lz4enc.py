@@ -23,7 +23,9 @@
 
 import struct
 import os
+import sys
 
+import profile
 
 
 #pragma once
@@ -117,14 +119,16 @@ class SmallLZ4():
   #/// match
   class Match:
   
+    def __init__(self):
+      #/// length of match
+      self.length = 0
+      #/// start of match
+      self.distance = 0
+
     #/// true, if long enough
     def isMatch(self):
       return self.length >= SmallLZ4.MinMatch;
 
-    #/// length of match
-    length = 0
-    #/// start of match
-    distance = 0
 
   
   #/// create new compressor (only invoked by lz4)
@@ -155,9 +159,9 @@ class SmallLZ4():
   
     #/// return true, if the four bytes at data[a] and data[b] match
     def match4(a, b):
-      la = struct.unpack('>L', data[a:a+4])
-      lb = struct.unpack('>L', data[b:b+4])
-      return a == b
+      la = struct.unpack('>L', data[a:a+4])[0]
+      lb = struct.unpack('>L', data[b:b+4])[0]
+      return la == lb
   
     result = self.Match()
     result.length = 1
@@ -184,6 +188,7 @@ class SmallLZ4():
 
       #// prepare next position
       distance = previous[(pos - totalDistance) % self.PreviousSize]
+      
       #// stop searching on lower compression levels
       stepsLeft -= 1
       if (stepsLeft <= 0):
@@ -261,11 +266,15 @@ class SmallLZ4():
     literalsTo   = 0 #// point beyond last literal of the current run
     #// walk through the whole block
     #for (size_t offset = 0; offset < matches.size(); ): #// increment inside of loop
-    for offset in range(len(matches)):
+    offset = 0
+    while (offset < len(matches)): #// increment inside of loop
+    #for offset in range(len(matches)):
 
       #// get best cost-weighted match
       #Match match = matches[offset]
-      match = matches[offset]
+      match = self.Match()
+      match.length = matches[offset].length
+      match.distance = matches[offset].distance
 
       #// if no match, then count literals instead
       if (not match.isMatch()):
@@ -330,7 +339,8 @@ class SmallLZ4():
       if (literalsFrom != literalsTo):
       
         #result.insert(result.end(), data + literalsFrom, data + literalsTo)
-        result.extend( data[index + literalsFrom:index + literalsTo] )
+        subset = data[index + literalsFrom:index + literalsTo]
+        result.extend( subset )
         literalsFrom = 0
         literalsTo = 0
       
@@ -390,7 +400,9 @@ class SmallLZ4():
       bestLength = 1
       #// analyze longest match
       #Match match = matches[i]
-      match = matches[i]    
+      match = self.Match()
+      match.length = matches[i].length
+      match.distance = matches[i].distance    
       
       #// match must not cross block borders
       if (match.isMatch() and i + match.length + self.BlockEndLiterals > blockEnd):
@@ -632,13 +644,15 @@ class SmallLZ4():
 #        if (i > 0 and dataBlock[i] == dataBlock[i - 1]):
         if (i > 0 and data[dataBlock + i] == data[dataBlock + i - 1]):
           #Match prevMatch = matches[i - 1];
-          prevMatch = matches[i - 1]
+          prevMatch = matches[i - 1]  # Python version of prevMatch is a reference not an instance
           
           #// predecessor had the same match ?
           if (prevMatch.distance == 1 and prevMatch.length > self.MaxSameLetter): #// TODO: handle very long self-referencing matches          
             #// just copy predecessor without further (expensive) optimizations
-            prevMatch.length -= 1
-            matches[i] = prevMatch
+            #prevMatch.length--;
+            #matches[i] = prevMatch;
+            matches[i].length = prevMatch.length - 1
+            matches[i].distance = prevMatch.distance
             continue
           
         def getLong(buffer, offset):
@@ -817,12 +831,12 @@ class SmallLZ4():
         #// clear hash tables
         #for (size_t i = 0; i < previousHash.size(); i++)
         for i in range(len(previousHash)):
-          previousHash[i] = NoPrevious
-          previousExact[i] = NoPrevious
+          previousHash[i] = self.NoPrevious
+          previousExact[i] = self.NoPrevious
 
         #for (size_t i = 0; i < lastHash.size(); i++)
         for i in range(len(lastHash)):
-          lastHash[i] = NoLastHash
+          lastHash[i] = self.NoLastHash
     
       else:
       
@@ -843,65 +857,93 @@ class SmallLZ4():
 # main()
 #-------------------------
 
+def main():
 
-print("smallz4 V" + str(SmallLZ4.Version) + ": compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)")
-print("")
-print("Basic usage:")
-print("  smallz4 [flags] [input] [output]")
-print("")
-print("This program writes to STDOUT if output isn't specified")
-print("and reads from STDIN if input isn't specified, either.")
-print("")
-print("Examples:")
-print("  smallz4   < abc.txt > abc.txt.lz4    # use STDIN and STDOUT")
-print("  smallz4     abc.txt > abc.txt.lz4    # read from file and write to STDOUT")
-print("  smallz4     abc.txt   abc.txt.lz4    # read from and write to file")
-print("  cat abc.txt | smalLZ4 - abc.txt.lz4  # read from STDIN and write to file")
-print("  smallz4 -6  abc.txt   abc.txt.lz4    # compression level 6 (instead of default 9)")
-print("  smallz4 -f  abc.txt   abc.txt.lz4    # overwrite an existing file")
-print("  smallz4 -f7 abc.txt   abc.txt.lz4    # compression level 7 and overwrite an existing file")
-print("")
-print("Flags:")
-print("  -0, -1 ... -9   Set compression level, default: 9 (see below)")
-print("  -h              Display this help message")
-print("  -f              Overwrite an existing file")
-print("  -l              Use LZ4 legacy file format")
-print("  -D [FILE]       Load dictionary")
-print("")
-print("Compression levels:")
-print(" -0               No compression")
-print(" -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches")
-print(" -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches")
-print(" -9               Optimal parsing, check all possible matches (default)")
-print("")
-print("Written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/")
-print("")
+  argv = sys.argv
+  argv.append("test2.txt")
 
-# Pass compression level to compressor
-#  "Compression levels:\n"
-#    " -0               No compression\n"
-#    " -1 ... -%d        Greedy search, check 1 to %d matches\n"
-#    " -%d ... -8        Lazy matching with optimal parsing, check %d to 8 matches\n"
-#    " -9               Optimal parsing, check all possible matches (default)\n"
+  print("smallz4 V" + str(SmallLZ4.Version) + ": compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)")
+  print("Written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/")
+  print("")
+  if len(argv) == 1:
+    print("Basic usage:")
+    print("  smallz4 [flags] [input] [output]")
+    print("")
+    print("This program writes to STDOUT if output isn't specified")
+    print("and reads from STDIN if input isn't specified, either.")
+    print("")
+    print("Examples:")
+    print("  smallz4   < abc.txt > abc.txt.lz4    # use STDIN and STDOUT")
+    print("  smallz4     abc.txt > abc.txt.lz4    # read from file and write to STDOUT")
+    print("  smallz4     abc.txt   abc.txt.lz4    # read from and write to file")
+    print("  cat abc.txt | smalLZ4 - abc.txt.lz4  # read from STDIN and write to file")
+    print("  smallz4 -6  abc.txt   abc.txt.lz4    # compression level 6 (instead of default 9)")
+    print("  smallz4 -f  abc.txt   abc.txt.lz4    # overwrite an existing file")
+    print("  smallz4 -f7 abc.txt   abc.txt.lz4    # compression level 7 and overwrite an existing file")
+    print("")
+    print("Flags:")
+    print("  -0, -1 ... -9   Set compression level, default: 9 (see below)")
+    print("  -h              Display this help message")
+    print("  -f              Overwrite an existing file")
+    print("  -l              Use LZ4 legacy file format")
+    print("  -D [FILE]       Load dictionary")
+    print("")
+    print("Compression levels:")
+    print(" -0               No compression")
+    print(" -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches")
+    print(" -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches")
+    print(" -9               Optimal parsing, check all possible matches (default)")
+    print("")
+    sys.exit()
 
 
-compression_level = 8
-src = "test.vgm"
-dst = src + ".lz4"
+  src = argv[1] # "test.vgm"
+  compression_level = 8
+  dst = src + ".lz4"
 
-print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(compression_level) )
 
-compressor = SmallLZ4(compression_level)
-file_in = open(src, 'rb')
-file_out = open(dst, 'wb')
-compressor.compress(file_in, file_out, bytearray(), False)
-file_in.close()
-file_out.close()
+  if not os.path.isfile(src):
+    print("ERROR: File '" + src + "' not found")
+    sys.exit()
 
-src_size = os.path.getsize(src)
-dst_size = os.path.getsize(dst)
-ratio = 100 - (int)((dst_size / src_size)*100)
+  # Pass compression level to compressor
+  #  "Compression levels:\n"
+  #    " -0               No compression\n"
+  #    " -1 ... -%d        Greedy search, check 1 to %d matches\n"
+  #    " -%d ... -8        Lazy matching with optimal parsing, check %d to 8 matches\n"
+  #    " -9               Optimal parsing, check all possible matches (default)\n"
 
-print(" Input file " + str(src_size) + " bytes, Output file " + str(dst_size) + ", (" + str(ratio) + "% compression)" )
 
-print("Complete.")
+
+  print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(compression_level) )
+
+  compressor = SmallLZ4(compression_level)
+  file_in = open(src, 'rb')
+  file_out = open(dst, 'wb')
+  compressor.compress(file_in, file_out, bytearray(), False)
+  file_in.close()
+  file_out.close()
+
+  src_size = os.path.getsize(src)
+  dst_size = os.path.getsize(dst)
+  if src_size == 0:
+    ratio = 0
+  else:
+    ratio = 100 - (int)((dst_size / src_size)*100)
+
+  print(" Input file " + str(src_size) + " bytes, Output file " + str(dst_size) + ", (" + str(ratio) + "% compression)" )
+
+  print("Complete.")
+
+#--------------------------------
+
+
+if True:
+  main()
+else:
+  profile.run('main()')
+
+#m = SmallLZ4.Match()
+#print(m.isMatch())
+#m.length = 56
+#print(m.isMatch())

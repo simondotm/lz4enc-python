@@ -25,6 +25,7 @@ import struct
 import os
 import sys
 
+from timeit import default_timer as timer
 import profile
 
 
@@ -161,6 +162,9 @@ class SmallLZ4():
     def match4(a, b):
       la = struct.unpack('>L', data[a:a+4])[0]
       lb = struct.unpack('>L', data[b:b+4])[0]
+
+      #la = data[0] + data[1] << 8 + data[2] << 16 + data[3] << 24
+      #lb = 
       return la == lb
   
     result = self.Match()
@@ -637,6 +641,11 @@ class SmallLZ4():
       #for (int i = lookback; i < (int)blockSize; i++)
       for i in range(lookback, blockSize):
 
+        # show progress
+        if (i & 511) == 0 or i == (blockSize - 1):
+          sys.stdout.write("   Scanning block data " + str(int(i*100/(blockSize-1))) + "%...\r")
+          sys.stdout.flush()
+
         #// no matches at the end of the block (or matching disabled by command-line option -0 )
         if (i + self.BlockEndNoMatch > blockSize or uncompressed):
           continue
@@ -759,6 +768,7 @@ class SmallLZ4():
       parseDictionary = False
       
       #// ==================== estimate costs (number of compressed bytes) ====================
+      print("")
       print("  Estimating costs...")
 
       #// not needed in greedy mode and/or very short blocks
@@ -860,6 +870,8 @@ class SmallLZ4():
 
 def main():
 
+  start_time = timer()  
+
   argv = sys.argv
   argv.append("test2.txt")
 
@@ -934,7 +946,9 @@ def main():
 
   print(" Input file " + str(src_size) + " bytes, Output file " + str(dst_size) + ", (" + str(ratio) + "% compression)" )
 
-  print("Complete.")
+  end_time = timer()
+
+  print("Completed in " + str(end_time-start_time) + "s.")
 
 #--------------------------------
 

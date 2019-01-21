@@ -160,12 +160,9 @@ class SmallLZ4():
   
     #/// return true, if the four bytes at data[a] and data[b] match
     def match4(a, b):
-      la = struct.unpack('>L', data[a:a+4])[0]
-      lb = struct.unpack('>L', data[b:b+4])[0]
-
-      #la = data[0] + data[1] << 8 + data[2] << 16 + data[3] << 24
-      #lb = 
-      return la == lb
+      #return *(const uint32_t*)a == *(const uint32_t*)b;
+      # bytewise equivalence is fine
+      return data[a:a+4] == data[b:b+4]
   
     result = self.Match()
     result.length = 1

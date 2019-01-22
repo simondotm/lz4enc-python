@@ -191,9 +191,11 @@ class SmallLZ4():
       distance = previous[(pos - totalDistance) % self.PreviousSize]
       
       #// stop searching on lower compression levels
-      stepsLeft -= 1
+      #if (stepsLeft-- <= 0) // note post decrement
       if (stepsLeft <= 0):
         break
+      stepsLeft -= 1
+
 
       #// let's introduce a new pointer atLeast that points to the first "new" byte of a potential longer match
       #const unsigned char* const atLeast = current + result.length + 1;
@@ -213,15 +215,24 @@ class SmallLZ4():
       #const unsigned char* compare = atLeast - 4
       compare = atLeast - 4
 
+      INLINE_MATCH4 = True
 
       ok = True
       while (compare > current):
 
         #// mismatch ?
-        if (not match4(compare, compare - totalDistance)):
-          ok = False
-          break
-        
+
+        if INLINE_MATCH4:
+          a = compare
+          b = compare - totalDistance
+          if data[a:a+4] != data[b:b+4]:
+            ok = False
+            break
+        else:
+          if (not match4(compare, compare - totalDistance)):
+            ok = False
+            break
+
         #// keep going ...
         compare -= 4
         #// note: - the first four bytes always match
@@ -237,8 +248,16 @@ class SmallLZ4():
       compare = atLeast
 
       #// fast loop: check four bytes at once
-      while (compare + 4 <= stop and match4(compare,     compare - totalDistance)):
-        compare += 4
+      if INLINE_MATCH4:
+        compare2 = compare - totalDistance
+        while (compare + 4 <= stop and data[compare:compare+4] == data[compare2:compare2+4]):
+          compare += 4
+          compare2 += 4
+      else:
+        while (compare + 4 <= stop and match4(compare,     compare - totalDistance)):
+          compare += 4
+
+
 
       #// slow loop: check the last 1/2/3 bytes
       #while (compare     <  stop and       *compare == *(compare - totalDistance)):
@@ -277,6 +296,7 @@ class SmallLZ4():
       match.length = matches[offset].length
       match.distance = matches[offset].distance
 
+      print("offset="+str(offset)+", length="+str(match.length)+", distance="+str(match.distance))
       #// if no match, then count literals instead
       if (not match.isMatch()):
       
@@ -315,6 +335,9 @@ class SmallLZ4():
           token |= matchLength
         else:
           token |= 15
+
+      if matchLength == 77:
+        print("FUCK")
 
       #print(token)
       #print(type(token))
@@ -387,7 +410,13 @@ class SmallLZ4():
     posLastMatch = blockEnd
 
     #for (int i = (int)blockEnd - (1 + BlockEndLiterals); i >= 0; i--) #// ignore the last 5 bytes, they are always literals
-    for i in range(blockEnd - (1 + self.BlockEndLiterals), 0, -1 ):
+    blockRange = blockEnd - (1 + self.BlockEndLiterals)
+    for i in range(blockRange, -1, -1 ): # lower range is -1 so we hit 0
+
+      # show progress
+      if (i & 511) == 0:
+        sys.stdout.write("   Calculating cost data " + str(100-int(i*100/(blockRange))) + "%...\r")
+        sys.stdout.flush()
 
       #// watch out for long literal strings that need extra bytes
       numLiterals = posLastMatch - i
@@ -773,6 +802,7 @@ class SmallLZ4():
         self.estimateCosts(matches)
 
       #// ==================== select best matches ====================
+      print("")
       print("  Selecting best matches...")
       
       #std::vector<unsigned char> block;
@@ -908,21 +938,17 @@ def main():
 
 
   src = argv[1] 
-  compression_level = 9
+
+  #src = "test.html"
   dst = src + ".lz4"
+
+  compression_level = 8
+  SmallLZ4.MaxDistance = 65535
 
 
   if not os.path.isfile(src):
     print("ERROR: File '" + src + "' not found")
     sys.exit()
-
-  # Pass compression level to compressor
-  #  "Compression levels:\n"
-  #    " -0               No compression\n"
-  #    " -1 ... -%d        Greedy search, check 1 to %d matches\n"
-  #    " -%d ... -8        Lazy matching with optimal parsing, check %d to 8 matches\n"
-  #    " -9               Optimal parsing, check all possible matches (default)\n"
-
 
 
   print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(compression_level) )
@@ -955,7 +981,3 @@ if True:
 else:
   profile.run('main()')
 
-#m = SmallLZ4.Match()
-#print(m.isMatch())
-#m.length = 56
-#print(m.isMatch())

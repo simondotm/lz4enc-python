@@ -24,6 +24,7 @@
 import struct
 import os
 import sys
+import argparse
 
 from timeit import default_timer as timer
 import profile
@@ -112,6 +113,9 @@ class SmallLZ4():
   MaxBlockSize   = 4*1024*1024
   #/// legacy format has a fixed block size of 8 MB
   MaxBlockSizeLegacy = 8*1024*1024
+
+  #// Verbose mode
+  Verbose = False
 
   #//  ----- one and only variable ... -----
   #/// how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse compression ratio
@@ -295,8 +299,10 @@ class SmallLZ4():
       match = self.Match()
       match.length = matches[offset].length
       match.distance = matches[offset].distance
-
-      print("offset="+str(offset)+", length="+str(match.length)+", distance="+str(match.distance))
+      
+      if self.Verbose:
+        print("offset="+str(offset)+", length="+str(match.length)+", distance="+str(match.distance))
+      
       #// if no match, then count literals instead
       if (not match.isMatch()):
       
@@ -336,8 +342,9 @@ class SmallLZ4():
         else:
           token |= 15
 
-      if matchLength == 77:
-        print("FUCK")
+      # debug oddity with html compressor
+      #if matchLength == 77:
+      #  print("FUCK")
 
       #print(token)
       #print(type(token))
@@ -900,50 +907,77 @@ def main():
   start_time = timer()  
 
   argv = sys.argv
-  argv.append("test2.txt")
 
   print("smallz4 V" + str(SmallLZ4.Version) + ": compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)")
   print("Written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/")
   print("")
-  if len(argv) == 1:
-    print("Basic usage:")
-    print("  smallz4 [flags] [input] [output]")
-    print("")
-    print("This program writes to STDOUT if output isn't specified")
-    print("and reads from STDIN if input isn't specified, either.")
-    print("")
-    print("Examples:")
-    print("  smallz4   < abc.txt > abc.txt.lz4    # use STDIN and STDOUT")
-    print("  smallz4     abc.txt > abc.txt.lz4    # read from file and write to STDOUT")
-    print("  smallz4     abc.txt   abc.txt.lz4    # read from and write to file")
-    print("  cat abc.txt | smalLZ4 - abc.txt.lz4  # read from STDIN and write to file")
-    print("  smallz4 -6  abc.txt   abc.txt.lz4    # compression level 6 (instead of default 9)")
-    print("  smallz4 -f  abc.txt   abc.txt.lz4    # overwrite an existing file")
-    print("  smallz4 -f7 abc.txt   abc.txt.lz4    # compression level 7 and overwrite an existing file")
-    print("")
-    print("Flags:")
-    print("  -0, -1 ... -9   Set compression level, default: 9 (see below)")
-    print("  -h              Display this help message")
-    print("  -f              Overwrite an existing file")
-    print("  -l              Use LZ4 legacy file format")
-    print("  -D [FILE]       Load dictionary")
-    print("")
-    print("Compression levels:")
-    print(" -0               No compression")
-    print(" -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches")
-    print(" -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches")
-    print(" -9               Optimal parsing, check all possible matches (default)")
-    print("")
-    sys.exit()
+  if False:
+    if len(argv) == 1:
+      print("Basic usage:")
+      print("  smallz4 [flags] [input] [output]")
+      print("")
+      print("This program writes to STDOUT if output isn't specified")
+      print("and reads from STDIN if input isn't specified, either.")
+      print("")
+      print("Examples:")
+      print("  smallz4   < abc.txt > abc.txt.lz4    # use STDIN and STDOUT")
+      print("  smallz4     abc.txt > abc.txt.lz4    # read from file and write to STDOUT")
+      print("  smallz4     abc.txt   abc.txt.lz4    # read from and write to file")
+      print("  cat abc.txt | smalLZ4 - abc.txt.lz4  # read from STDIN and write to file")
+      print("  smallz4 -6  abc.txt   abc.txt.lz4    # compression level 6 (instead of default 9)")
+      print("  smallz4 -f  abc.txt   abc.txt.lz4    # overwrite an existing file")
+      print("  smallz4 -f7 abc.txt   abc.txt.lz4    # compression level 7 and overwrite an existing file")
+      print("")
+      print("Flags:")
+      print("  -0, -1 ... -9   Set compression level, default: 9 (see below)")
+      print("  -h              Display this help message")
+      print("  -f              Overwrite an existing file")
+      print("  -l              Use LZ4 legacy file format")
+      print("  -D [FILE]       Load dictionary")
+      print("")
+      print("Compression levels:")
+      print(" -0               No compression")
+      print(" -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches")
+      print(" -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches")
+      print(" -9               Optimal parsing, check all possible matches (default)")
+      print("")
+      sys.exit()
+
+  epilog_string = "Compression levels:\n"
+  epilog_string += " -0               No compression\n"
+  epilog_string += " -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches\n"
+  epilog_string += " -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches\n"
+  epilog_string += " -9               Optimal parsing, check all possible matches (default)\n"
+
+  parser = argparse.ArgumentParser(
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog=epilog_string)
+
+  parser.add_argument("input", help="read from file [input]")
+  parser.add_argument("-o", "--output", help="write to file [output] (default is '[input].lz4'")
+  parser.add_argument("-D", "--dict", metavar="file", help="Load dictionary file")
+  parser.add_argument("-c", "--compress", type=int, default=9, metavar="int", help="Set compression level (0-9), default: 9")
+  parser.add_argument("-f", "--force", help="Overwrite an existing file", action="store_true")
+  parser.add_argument("-l", "--legacy", help="Use LZ4 legacy file format", action="store_true")
+  parser.add_argument("-p", "--profile", help="Profile the script", action="store_true")
+  parser.add_argument("-w", "--window", type=int, default=SmallLZ4.MaxDistance, help="Set LZ4 window size, default:"+str(SmallLZ4.MaxDistance))
+  parser.add_argument("-v", "--verbose", help="Enable verbose mode", action="store_true")
+  args = parser.parse_args()
+
+  #print(args)
 
 
-  src = argv[1] 
+  #src = argv[1] 
+  src = args.input
+  dst = args.output
+  if dst == None:
+    dst = src + ".lz4"
 
-  #src = "test.html"
-  dst = src + ".lz4"
-
-  compression_level = 8
-  SmallLZ4.MaxDistance = 65535
+  SmallLZ4.Verbose = args.verbose
+  SmallLZ4.MaxDistance = args.window
+  compression_level = args.compress
+  #compression_level = args.8
+  #SmallLZ4.MaxDistance = 65535
 
 
   if not os.path.isfile(src):
@@ -971,7 +1005,8 @@ def main():
 
   end_time = timer()
 
-  print("Completed in " + str(end_time-start_time) + "s.")
+  t = '{:.2f}'.format(end_time-start_time)
+  print("Completed in " + t + "s.")
 
 #--------------------------------
 

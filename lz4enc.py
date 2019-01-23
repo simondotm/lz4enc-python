@@ -447,7 +447,7 @@ class LZ4():
   #--------------------------------------------------------------------------------------------------------------------------------
   # inputData, and dictionary are bytearray's
   # returns a bytearray containing the compressed LZ4 stream
-  def compressBlock(self, inputData, dictionary):
+  def compressBlock(self, inputData, dictionary = bytearray()):
 
     outputData = bytearray()
 
@@ -661,7 +661,7 @@ class LZ4():
           # prevent from accidently hopping on an old, wrong hash chain
           curHash = ((curFour * HashMultiplier) >> HashShift) & (HashSize - 1)
           if (curHash != hash):
-            distance = NoPrevious
+            distance = self.NoPrevious
             break
           
           # try next pseudo-match
@@ -805,7 +805,8 @@ class LZ4():
     outputBuffer.extend( bytearray([0x04, 0x22, 0x4D, 0x18]) )
       
     # flags
-    flags = 1 << 6
+    # (7-6) FieldName	Version (5)	B.Indep (4)	B.Checksum (3)	C.Size (2)	C.Checksum (1) Reserved (0)	DictID
+    flags = 1 << 6 # Version, dependent blocks, no block checksum, no size, no content checksum, no dict ID 
     outputBuffer.append( struct.pack('B', flags) )
 
     # max blocksize

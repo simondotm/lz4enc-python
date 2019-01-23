@@ -1,5 +1,5 @@
 # lz4enc-python
-Python port of [Stephan Brumme's Smallz4 LZ4 encoder].(https://create.stephan-brumme.com/smallz4/)
+Python port of [Stephan Brumme's Smallz4 LZ4 encoder](https://create.stephan-brumme.com/smallz4/)
 
 [@simondotm](https://github.com/simondotm) / 2019 
 

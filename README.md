@@ -20,6 +20,40 @@ My aim was to take an existing algorithm and customize it for use on some 8-bit 
 
 The code isn't guaranteed to be bug free, but so far it checks out! Feel free to make use of it.
 
+## Usage
+
+```
+smallz4 V1.3: compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)
+Written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/
+Python port 2019 by Simon M, https://github.com/simondotm/
+
+usage: smallz4.py [-h] [-o OUTPUT] [-D file] [-c int] [-f] [-l] [-p]
+                  [-w WINDOW] [-v]
+                  input
+
+positional arguments:
+  input                 read from file [input]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -o OUTPUT, --output OUTPUT
+                        write to file [output] (default is '[input].lz4'
+  -D file, --dict file  Load dictionary file
+  -c int, --compress int
+                        Set compression level (0-9), default: 9
+  -f, --force           Overwrite an existing file
+  -l, --legacy          Use LZ4 legacy file format
+  -p, --profile         Profile the script
+  -w WINDOW, --window WINDOW
+                        Set LZ4 window size, default:65535
+  -v, --verbose         Enable verbose mode
+
+Compression levels:
+ -0               No compression
+ -1 ... -3        Greedy search, check 1 to 3 matches
+ -4 ... -8        Lazy matching with optimal parsing, check 4 to 8 matches
+ -9               Optimal parsing, check all possible matches (default)
+```
 
 
 ## References

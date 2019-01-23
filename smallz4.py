@@ -511,7 +511,8 @@ class SmallLZ4():
       sendBytes( bytearray([0x04, 0x22, 0x4D, 0x18]) )
       
       #// flags
-      flags = 1 << 6
+      # (7-6) FieldName	Version (5)	B.Indep (4)	B.Checksum (3)	C.Size (2)	C.Checksum (1) Reserved (0)	DictID
+      flags = 1 << 6 # Version, dependent blocks, no block checksum, no size, no content checksum, no dict ID 
       sendBytes( struct.pack('B', flags) )
 
       #// max blocksize
@@ -727,7 +728,7 @@ class SmallLZ4():
           #uint32_t curHash = ((curFour * HashMultiplier) >> HashShift) & (HashSize - 1);
           curHash = ((curFour * HashMultiplier) >> HashShift) & (HashSize - 1)
           if (curHash != hash):
-            distance = NoPrevious
+            distance = self.NoPrevious
             break
           
           #// try next pseudo-match

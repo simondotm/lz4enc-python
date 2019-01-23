@@ -9,18 +9,57 @@ This project came about as I was in need of a decent compression algorithm that 
 * Fast decompression
 * Simple compression algorithm
 * Byte oriented output stream
+* Reasonable compression ratios
 * Minimum or no decoder side memory buffer requirements
+* Suited for embedded/8-bit CPUs
+* Has possibility for 'streamed' decompression
 * Tweakable for my own nefarious purposes.
 
 My aim was to take an existing algorithm and customize it for use on some 8-bit 6502 code/data. LZ4 fit the requirements perfectly, and so since I like working in Python I decided to port Stephan's implementation to Python directly from the C++ source.
 
-**WARNING:** It's REALLY SLOW in Python! But... it suits my needs since I'm only working with small data sets.
+**WARNING:** It's REALLY SLOW in Python if you use the full optimal parser, but... it suits my needs since I'm only working with small data sets.
 
-## Notes
+There are two Python scripts in this project - `smallz4.py` which is a direct line-by-line port of Stephan's `smalllz4` `.cpp/.h` source files. Stephan provides an excellent analysis of how the encoding and decoding techniques work.
+
+The second script is `lz4enc.py` which is a more general purpose variant for use with Python - and has API changes to allow more flexible use of LZ4 compression within other Python based tool chains.
+
+
+
+
+## Release Notes
+
+### `smallz4.py`
 
 The code isn't guaranteed to be bug free, but so far it checks out! Feel free to make use of it.
 
+The only change I made was to allow a command line parameter to override the default maximum LZ4 compression "window size" of 65,335 bytes. It's useful for comparison purposes to be able to change this to smaller sizes. LZ4 stores match offsets in 16-bits so using a smaller window does mean the data storage is less efficient, but retains byte stream compatibility.
+
+## General Notes
+
+#### LZ4 Notes
+LZ4 is simple. LZ4 is fast. It also can offer decent compression.
+
+It uses 64Kb sliding windows, which is fine if you are unpacking in place because the sliding window is the previously decoded stream.
+
+Byte streaming is possible by allowing a 'fetch byte' routine that pulls from the decoded stream window up until the history point, at which point more decoding is required.
+If byte streaming isnt needed, the history buffer is not required since the decoded stream represents that buffer and for 8-bit machines a 64Kb window is fine.
+
+LZ4 uses 64Kb windows because the match offset field is 16-bits. In principle the encoder can be modified to use a smaller match distance without breaking compatibility.
+
+LZ4 also supports dictionaries, in so much that they are prepended to the history window at the start of compression & decompression to give them context of available matches.
+This is very useful for small files that contain repetitive or common phrases, since small files typically dont compress well due to the fact they dont have much data to build a dictionary.
+
+#### Other considerations
+
+Exomiser is great at compression, but it is slow(er) and a complex file format.
+ZStandard is interesting, but the implementation is complex.
+LZW uses dictionary tables rather than sliding windows, and not suited to low power/memory CPU environments.
+
+LZO/LZMO are other variants I looked at, but settled on LZ4.
+
 ## Usage
+
+### `smallz4.py`
 
 ```
 smallz4 V1.3: compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)
@@ -58,9 +97,17 @@ Compression levels:
 
 ## References
 
-* [Smallz4](https://create.stephan-brumme.com/smallz4/)
-* [LZ4 Man Page](https://www.systutorials.com/docs/linux/man/1-lz4/)
-* [LZ4 Home Page](https://github.com/lz4/lz4)
-* [Dictionary compression](http://fastcompression.blogspot.com/2018/02/when-to-use-dictionary-compression.html)
+### LZ4
+
+* [Smallz4 home page](https://create.stephan-brumme.com/smallz4/), explanations of the LZ4 algorithm and encoding/decoding techniques
+* [Official LZ4 Home Page](https://lz4.github.io/lz4/)
+* [LZ4 Github repo](https://github.com/lz4/lz4)
+* [LZ4 Command Line Man Page](https://www.systutorials.com/docs/linux/man/1-lz4/)
+* [Useful article on dictionary-based compression](http://fastcompression.blogspot.com/2018/02/when-to-use-dictionary-compression.html)
+* [Great Explanation of LZ4 decompression (and other compression methods suited to older hardware)](http://www.brutaldeluxe.fr/products/crossdevtools/lz4/index.html)
+
+
+### Lizard/LZ5
+* If you are interested in how LZ4 can be improved (better compression but with similar high performance decompression) take a look at [Lizard (was LZ5)](https://github.com/inikep/lizard)
 
 All credit and thanks to Stephan for his excellent work providing such excellent and useful resources for LZ4 encoding and decoding.

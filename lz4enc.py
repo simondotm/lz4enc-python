@@ -433,16 +433,34 @@ class SmallLZ4():
   #--------------------------------------------------------------------------------------------------------------------------------
   # compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
   #--------------------------------------------------------------------------------------------------------------------------------
-  def compress(self, in_file, out_file, dictionary):
+  # inputData, and dictionary are bytearray's
+  # returns a bytearray containing the compressed LZ4 stream
+  def compress(self, inputData, dictionary):
 
-    # write a byte array to the output stream
+    outputData = bytearray()
+
+    # write a byte array to the output buffer, data can be a byte or a byte array
     def sendBytes(data):
-      out_file.write(data)
+      if len(data) == 1:
+        outputData.append(data)
+      else:
+        outputData.extend(data)
 
-    # read upto count bytes from the input stream, returned in a new bytearray 'buffer'
+    # read upto count bytes from the input buffer, returned in a new bytearray 'buffer'. Returns an empty buffer if no more data available.
     def getBytes(count):
-      buffer = bytearray(in_file.read(count))
-      return buffer
+      ptr = getBytes.inputPointer
+      if ptr >= len(inputData):
+        return bytearray()
+      else:
+        if ptr+count >= len(inputData):
+          count = len(inputData) - ptr
+
+        buf = inputData[ptr:ptr+count]
+        getBytes.inputPointer = ptr + count
+        return buf
+
+    # initialise getByte read stream
+    getBytes.inputPointer = 0
 
 
 
@@ -777,6 +795,8 @@ class SmallLZ4():
 
     # add an empty block
     sendBytes(struct.pack('i', 0))
+
+    return outputData
     
 
 #-------------------------
@@ -803,11 +823,16 @@ def main(args):
   print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(compression_level) )
 
   compressor = SmallLZ4(compression_level)
-  file_in = open(src, 'rb')
-  file_out = open(dst, 'wb')
-  compressor.compress(file_in, file_out, bytearray(), False)
-  file_in.close()
-  file_out.close()
+
+  fh = open(src, 'rb')
+  file_in = bytearray(fh.read())
+  fh.close()
+
+  file_out = compressor.compress(file_in, bytearray())
+
+  fh = open(dst, 'wb')
+  fh.write(file_out)
+  fh.close()
 
   src_size = os.path.getsize(src)
   dst_size = os.path.getsize(dst)

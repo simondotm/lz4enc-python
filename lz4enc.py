@@ -60,6 +60,9 @@ class LZ4():
   # Verbose mode
   Verbose = False
 
+  # Debug mode
+  Debug = False
+
   #  ----- code -----
   
   #-------------------------------------------------------------------------------------------------
@@ -231,7 +234,8 @@ class LZ4():
       match.length = matches[offset].length
       match.distance = matches[offset].distance
       
-      if self.Verbose:
+      # debug output
+      if self.Debug:
         print("offset="+str(offset)+", length="+str(match.length)+", distance="+str(match.distance))
       
       # if no match, then count literals instead
@@ -329,11 +333,14 @@ class LZ4():
         # and the last byte (can be zero, too)
         result.append(matchLength)
       
-    print("    largestOffset=" + str(largestOffset))
-    print("    largestLength=" + str(largestLength))
-    print("       tokenCount=" + str(tokenCount))
-    print("  byteOffsetCount=" + str(byteOffsetCount) + " (ie. offsets were <256)")
-    print("  sameOffsetCount=" + str(sameOffsetCount) + " (ie. number of offsets that were repeated)")
+
+    # debug output
+    if LZ4.Debug:
+      print("    largestOffset=" + str(largestOffset))
+      print("    largestLength=" + str(largestLength))
+      print("       tokenCount=" + str(tokenCount))
+      print("  byteOffsetCount=" + str(byteOffsetCount) + " (ie. offsets were <256)")
+      print("  sameOffsetCount=" + str(sameOffsetCount) + " (ie. number of offsets that were repeated)")
 
     return result
   
@@ -508,7 +515,8 @@ class LZ4():
       # prepend dictionary
       if (parseDictionary):
 
-        print(" Loading Dictionary...")
+        if LZ4.Verbose:
+          print(" Loading Dictionary...")
 
         # prepend exactly 64k
         MaxDictionary = 65536
@@ -544,7 +552,8 @@ class LZ4():
       if (nextBlock == numRead):
         break
 
-      print(" Processing Block... " + str(numRead>>10) + "Kb, (maxBlockSize=" + str(maxBlockSize>>10) + "Kb, windowSize=" + str(self.MaxDistance>>10) + "Kb)")
+      if LZ4.Verbose:
+        print(" Processing Block... " + str(numRead>>10) + "Kb, (maxBlockSize=" + str(maxBlockSize>>10) + "Kb, windowSize=" + str(self.MaxDistance>>10) + "Kb)")
 
       # determine block borders
       lastBlock  = nextBlock
@@ -561,7 +570,8 @@ class LZ4():
       blockSize = nextBlock - lastBlock
 
       # ==================== full match finder ====================
-      print("  Finding matches...")
+      if LZ4.Verbose:
+        print("  Finding matches...")
       # greedy mode is much faster but produces larger output
       isGreedy = (self.maxChainLength <= self.ShortChainsGreedy)
       # lazy evaluation: if there is a (match, then try running match finder on next position, too, but not after that
@@ -706,16 +716,18 @@ class LZ4():
       parseDictionary = False
       
       # ==================== estimate costs (number of compressed bytes) ====================
-      print("")
-      print("  Estimating costs...")
+      if LZ4.Verbose:
+        print("")
+        print("  Estimating costs...")
 
       # not needed in greedy mode and/or very short blocks
       if (len(matches) > self.BlockEndNoMatch and self.maxChainLength > self.ShortChainsGreedy):
         self.estimateCosts(matches)
 
       # ==================== select best matches ====================
-      print("")
-      print("  Selecting best matches...")
+      if LZ4.Verbose:
+        print("")
+        print("  Selecting best matches...")
       
       block = bytearray()
       if (not uncompressed):
@@ -728,11 +740,12 @@ class LZ4():
       # did compression do harm ?
       useCompression   = len(block) < uncompressedSize and not uncompressed
 
-      print(" Writing output block - uncompressed (" + str(uncompressedSize) + "), compressed (" + str(len(block)) + ") ...")
-      if useCompression:
-        print("  Compressed data selected for this block.")
-      else:
-        print("  Uncompressed data selected for this block.")
+      if LZ4.Verbose:
+        print(" Writing output block - uncompressed (" + str(uncompressedSize) + "), compressed (" + str(len(block)) + ") ...")
+        if useCompression:
+          print("  Compressed data selected for this block.")
+        else:
+          print("  Uncompressed data selected for this block.")
      
       # block size
       if useCompression:

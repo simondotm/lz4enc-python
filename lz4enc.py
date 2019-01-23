@@ -62,19 +62,16 @@ class SmallLZ4():
 
   #  ----- code -----
   
-  # create new compressor (only invoked by lz4)
+  #-------------------------------------------------------------------------------------------------
+  # create new compressor instance
+  # Sets default compression level of 9
+  #-------------------------------------------------------------------------------------------------
   def __init__(self, level = 9):
-    if (level >= 9):
-      newMaxChainLength = 65536  # "unlimited" because search window contains only 2^16 bytes 
-    else:
-      newMaxChainLength = level
+    self.setCompression(level)
 
-    # how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse compression ratio
-    self.maxChainLength = newMaxChainLength
-    # => no limit, but can be changed by setMaxChainLength
-
-
+  #-------------------------------------------------------------------------------------------------
   # match struct
+  #-------------------------------------------------------------------------------------------------
   class Match:
   
     def __init__(self):
@@ -88,12 +85,14 @@ class SmallLZ4():
       return self.length >= SmallLZ4.MinMatch
 
 
+  #-------------------------------------------------------------------------------------------------
   # find longest match of data[pos] between data[begin] and data[end], use match chain stored in previous
   # returns a Match object
   #
   # data - bytearray
   # pos, begin, end - int
   # previous - Distance list/array
+  #-------------------------------------------------------------------------------------------------
   def findLongestMatch(self, data, pos, begin, end, previous):
   
     # return true, if the four bytes at data[a] and data[b] match
@@ -201,10 +200,12 @@ class SmallLZ4():
     
     return result
   
+  #-------------------------------------------------------------------------------------------------
   # create shortest output
   #  data points to block's begin; we need it to extract literals
   #
   # returns bytearray
+  #-------------------------------------------------------------------------------------------------
   def selectBestMatches(self, matches, data, index):
     # store encoded data
     result = bytearray()
@@ -336,8 +337,10 @@ class SmallLZ4():
 
     return result
   
+  #-------------------------------------------------------------------------------------------------
   # walk backwards through all matches and compute number of compressed bytes from current position to the end of the block
   #  note: matches are modified (shortened length) if necessary
+  #-------------------------------------------------------------------------------------------------
   def estimateCosts(self, matches):
     blockEnd = len(matches)
 
@@ -431,11 +434,13 @@ class SmallLZ4():
       #       which could be more cache-friendly (=> faster decoding)
     
   #--------------------------------------------------------------------------------------------------------------------------------
-  # compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
+  # create an LZ4 compressed block from the input buffer
+  # return the compressed block as an output buffer
+  # improve compression with a predefined dictionary
   #--------------------------------------------------------------------------------------------------------------------------------
   # inputData, and dictionary are bytearray's
   # returns a bytearray containing the compressed LZ4 stream
-  def compress(self, inputData, dictionary):
+  def compressBlock(self, inputData, dictionary):
 
     outputData = bytearray()
 
@@ -461,25 +466,7 @@ class SmallLZ4():
 
     # initialise getByte read stream
     getBytes.inputPointer = 0
-
-
-
-    # ==================== write header ====================
-    # magic bytes
-    sendBytes( bytearray([0x04, 0x22, 0x4D, 0x18]) )
-      
-    # flags
-    flags = 1 << 6
-    sendBytes( struct.pack('B', flags) )
-
-    # max blocksize
-    maxBlockSizeId = self.MaxBlockSizeId << 4
-    sendBytes( struct.pack('B', maxBlockSizeId) )
-    
-    # header checksum (precomputed)
-    checksum = 0xDF
-    sendBytes( struct.pack('B', checksum) )
-    
+   
     # ==================== declarations ====================
     # read the file in chunks/blocks, data will contain only bytes which are relevant for the current block
     data = bytearray()
@@ -793,11 +780,69 @@ class SmallLZ4():
           dataZero += remove
           data = data[remove:]
 
-    # add an empty block
-    sendBytes(struct.pack('i', 0))
-
     return outputData
     
+  #-------------------------------------------------------------------------------------------------
+  # Emit an LZ4 compatible frame header to the outputBuffer bytearray  
+  #-------------------------------------------------------------------------------------------------
+  def beginFrame(self, outputBuffer):
+
+    # ==================== write LZ4 header ====================
+    # magic bytes
+    outputBuffer.extend( bytearray([0x04, 0x22, 0x4D, 0x18]) )
+      
+    # flags
+    flags = 1 << 6
+    outputBuffer.append( struct.pack('B', flags) )
+
+    # max blocksize
+    maxBlockSizeId = self.MaxBlockSizeId << 4
+    outputBuffer.append( struct.pack('B', maxBlockSizeId) )
+    
+    # header checksum (precomputed)
+    checksum = 0xDF
+    outputBuffer.append( struct.pack('B', checksum) )
+  
+  #-------------------------------------------------------------------------------------------------
+  # Emit an LZ4 compatible frame end signal (a block with size 0)
+  #-------------------------------------------------------------------------------------------------
+  def endFrame(self, outputBuffer):
+    # add an empty block
+    outputBuffer.extend(struct.pack('i', 0))    
+
+  #-------------------------------------------------------------------------------------------------
+  # setCompression
+  # Set the encoder match parameter for compression ratio/speed tradeoff
+  # compressionLevel can be 0 (uncompressed) to 1 (low compression, high encoding speed), to 9 (optimal compression, low encoding speed) 
+  #-------------------------------------------------------------------------------------------------
+  def setCompression(self, compressionLevel, windowSize = 65535):
+    if (compressionLevel >= 9):
+      newMaxChainLength = 65536  # "unlimited" because search window contains only 2^16 bytes 
+    else:
+      newMaxChainLength = compressionLevel
+
+    # how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse compression ratio
+    self.maxChainLength = newMaxChainLength
+    # => no limit, but can be changed by setMaxChainLength
+
+    # set the sliding window size, 65535 is the default since that is the maximum supported by the 16-bit offset format (ignoring 0, which is an invalid value)
+    self.MaxDistance = windowSize
+
+
+  #--------------------------------------------------------------------------------------------------------------------------------
+  # compress everything in input stream (accessed via getByte) and write to complete LZ4 output stream
+  # improve compression with a predefined dictionary
+  #--------------------------------------------------------------------------------------------------------------------------------
+  # inputData, and dictionary are bytearray's
+  # returns a bytearray containing the compressed LZ4 stream
+  def compress(self, inputData, dictionary):
+    outputBuffer = bytearray()
+    self.beginFrame(outputBuffer)
+    compressedBlock = self.compressBlock(inputData, dictionary)
+    outputBuffer.extend(compressedBlock)
+    self.endFrame(outputBuffer)
+    return outputBuffer
+
 
 #-------------------------
 # main()
@@ -812,28 +857,35 @@ def main(args):
   if dst == None:
     dst = src + ".lz4"
 
+  # enable verbose mode
   SmallLZ4.Verbose = args.verbose
-  SmallLZ4.MaxDistance = args.window
-  compression_level = args.compress
 
+  # check for missing files
   if not os.path.isfile(src):
     print("ERROR: File '" + src + "' not found")
     sys.exit()
 
-  print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(compression_level) )
+  # create the instance
+  compressor = SmallLZ4()
 
-  compressor = SmallLZ4(compression_level)
+  # set the compression parameters
+  compressor.setCompression(args.compress, args.window)
 
+  # load the input file into memory
   fh = open(src, 'rb')
   file_in = bytearray(fh.read())
   fh.close()
 
+  # compress into LZ4 file stream
+  print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(args.compress) )
   file_out = compressor.compress(file_in, bytearray())
 
+  # write the LZ4 stream to output file
   fh = open(dst, 'wb')
   fh.write(file_out)
   fh.close()
 
+  # stats
   src_size = os.path.getsize(src)
   dst_size = os.path.getsize(dst)
   if src_size == 0:

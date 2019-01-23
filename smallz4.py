@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+# Python port of smallz4 by @simondotm (https://github.com/simondotm)
+# smallz4 by Stephan Brumme (https://create.stephan-brumme.com/smallz4/)
+
+
+
 #// //////////////////////////////////////////////////////////
 #// smallz4.h
 #// Copyright (c) 2016-2018 Stephan Brumme. All rights reserved.
@@ -247,6 +253,15 @@ class SmallLZ4():
     #// store encoded data
     result = bytearray()
     #result.reserve(MaxBlockSize)
+
+    # matchLength can be 4 + 14 + 254 in 12-bits = 272
+    tokenCount = 0
+    largestOffset = 0
+    largestLength = 0
+    byteOffsetCount = 0
+    sameOffsetCount = 0
+    lastOffset = -1
+
     #// indices of current literal run
     literalsFrom = 0
     literalsTo   = 0 #// point beyond last literal of the current run
@@ -306,6 +321,9 @@ class SmallLZ4():
 
       result.append( token ) #struct.pack('B', token) )
 
+      tokenCount += 1
+
+
       #// >= 15 literals ? (extra bytes to store length)
       if (numLiterals >= 15):
       
@@ -333,6 +351,17 @@ class SmallLZ4():
       if (lastToken):
         break
 
+      # stats
+      if match.distance > largestOffset:
+        largestOffset = match.distance
+      if matchLength > largestLength:
+        largestLength = matchLength
+      if match.distance < 256:
+        byteOffsetCount += 1
+      if match.distance == lastOffset:
+        sameOffsetCount += 1
+      lastOffset = match.distance
+
       #// distance stored in 16 bits / little endian
       result.append( match.distance & 0xFF )
       result.append( (match.distance >> 8) & 0xFF )
@@ -348,7 +377,12 @@ class SmallLZ4():
         #// and the last byte (can be zero, too)
         result.append(matchLength)
       
-    
+    print("    largestOffset=" + str(largestOffset))
+    print("    largestLength=" + str(largestLength))
+    print("       tokenCount=" + str(tokenCount))
+    print("  byteOffsetCount=" + str(byteOffsetCount) + " (ie. offsets were <256)")
+    print("  sameOffsetCount=" + str(sameOffsetCount) + " (ie. number of offsets that were repeated)")
+
     return result
   
   #/// walk backwards through all matches and compute number of compressed bytes from current position to the end of the block
@@ -520,6 +554,7 @@ class SmallLZ4():
     lastBlock = 0
     nextBlock = 0
     parseDictionary = len(dictionary) > 0
+
     while (True):
     
       #// ==================== start new block ====================
@@ -893,34 +928,37 @@ def main(args):
 
 #--------------------------------
 
-print("smallz4 V" + str(SmallLZ4.Version) + ": compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)")
-print("Written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/")
-print("Python port 2019 by Simon M, https://github.com/simondotm/")
-print("")
+# Determine if running as a script
+if __name__ == '__main__':
 
-epilog_string = "Compression levels:\n"
-epilog_string += " -0               No compression\n"
-epilog_string += " -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches\n"
-epilog_string += " -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches\n"
-epilog_string += " -9               Optimal parsing, check all possible matches (default)\n"
+  print("smallz4 V" + str(SmallLZ4.Version) + ": compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)")
+  print("Written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/")
+  print("Python port 2019 by Simon M, https://github.com/simondotm/")
+  print("")
 
-parser = argparse.ArgumentParser(
-  formatter_class=argparse.RawDescriptionHelpFormatter,
-  epilog=epilog_string)
+  epilog_string = "Compression levels:\n"
+  epilog_string += " -0               No compression\n"
+  epilog_string += " -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches\n"
+  epilog_string += " -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches\n"
+  epilog_string += " -9               Optimal parsing, check all possible matches (default)\n"
 
-parser.add_argument("input", help="read from file [input]")
-parser.add_argument("-o", "--output", help="write to file [output] (default is '[input].lz4'")
-parser.add_argument("-D", "--dict", metavar="file", help="Load dictionary file")
-parser.add_argument("-c", "--compress", type=int, default=9, metavar="int", help="Set compression level (0-9), default: 9")
-parser.add_argument("-f", "--force", help="Overwrite an existing file", action="store_true")
-parser.add_argument("-l", "--legacy", help="Use LZ4 legacy file format", action="store_true")
-parser.add_argument("-p", "--profile", help="Profile the script", action="store_true")
-parser.add_argument("-w", "--window", type=int, default=SmallLZ4.MaxDistance, help="Set LZ4 window size, default:"+str(SmallLZ4.MaxDistance))
-parser.add_argument("-v", "--verbose", help="Enable verbose mode", action="store_true")
-args = parser.parse_args()
+  parser = argparse.ArgumentParser(
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog=epilog_string)
 
-if args.profile:
-  profile.run('main(args)')
-else:
-  main(args)
+  parser.add_argument("input", help="read from file [input]")
+  parser.add_argument("-o", "--output", help="write to file [output] (default is '[input].lz4'")
+  parser.add_argument("-D", "--dict", metavar="file", help="Load dictionary file")
+  parser.add_argument("-c", "--compress", type=int, default=9, metavar="int", help="Set compression level (0-9), default: 9")
+  parser.add_argument("-f", "--force", help="Overwrite an existing file", action="store_true")
+  parser.add_argument("-l", "--legacy", help="Use LZ4 legacy file format", action="store_true")
+  parser.add_argument("-p", "--profile", help="Profile the script", action="store_true")
+  parser.add_argument("-w", "--window", type=int, default=SmallLZ4.MaxDistance, help="Set LZ4 window size, default:"+str(SmallLZ4.MaxDistance))
+  parser.add_argument("-v", "--verbose", help="Enable verbose mode", action="store_true")
+  args = parser.parse_args()
+
+  if args.profile:
+    profile.run('main(args)')
+  else:
+    main(args)
 

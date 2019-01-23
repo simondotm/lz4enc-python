@@ -56,8 +56,6 @@ class SmallLZ4():
   #  note: xxhash header checksum is precalculated only for 7, too
   MaxBlockSizeId = 7
   MaxBlockSize   = 4*1024*1024
-  # legacy format has a fixed block size of 8 MB
-  MaxBlockSizeLegacy = 8*1024*1024
 
   # Verbose mode
   Verbose = False
@@ -435,7 +433,7 @@ class SmallLZ4():
   #--------------------------------------------------------------------------------------------------------------------------------
   # compress everything in input stream (accessed via getByte) and write to output stream (via send), improve compression with a predefined dictionary
   #--------------------------------------------------------------------------------------------------------------------------------
-  def compress(self, in_file, out_file, dictionary, useLegacyFormat):
+  def compress(self, in_file, out_file, dictionary):
 
     # write a byte array to the output stream
     def sendBytes(data):
@@ -450,22 +448,19 @@ class SmallLZ4():
 
     # ==================== write header ====================
     # magic bytes
-    if (useLegacyFormat):
-      sendBytes( bytearray([0x02, 0x21, 0x4C, 0x18]) )
-    else:
-      sendBytes( bytearray([0x04, 0x22, 0x4D, 0x18]) )
+    sendBytes( bytearray([0x04, 0x22, 0x4D, 0x18]) )
       
-      # flags
-      flags = 1 << 6
-      sendBytes( struct.pack('B', flags) )
+    # flags
+    flags = 1 << 6
+    sendBytes( struct.pack('B', flags) )
 
-      # max blocksize
-      maxBlockSizeId = self.MaxBlockSizeId << 4
-      sendBytes( struct.pack('B', maxBlockSizeId) )
-      
-      # header checksum (precomputed)
-      checksum = 0xDF
-      sendBytes( struct.pack('B', checksum) )
+    # max blocksize
+    maxBlockSizeId = self.MaxBlockSizeId << 4
+    sendBytes( struct.pack('B', maxBlockSizeId) )
+    
+    # header checksum (precomputed)
+    checksum = 0xDF
+    sendBytes( struct.pack('B', checksum) )
     
     # ==================== declarations ====================
     # read the file in chunks/blocks, data will contain only bytes which are relevant for the current block
@@ -525,10 +520,7 @@ class SmallLZ4():
         numRead   = len(data)
       
       # read more bytes from input
-      if useLegacyFormat:
-        maxBlockSize = self.MaxBlockSizeLegacy
-      else:
-        maxBlockSize = self.MaxBlockSize
+      maxBlockSize = self.MaxBlockSize
 
 
 
@@ -585,11 +577,7 @@ class SmallLZ4():
 
       # so let's go back a few bytes
       lookback = -lookback
-
-      # ... but not in legacy mode
-      if (useLegacyFormat):
-        lookback = 0
-  
+ 
       matches = [ self.Match() for i in range(blockSize) ]
 
       # find longest matches for each position
@@ -740,11 +728,7 @@ class SmallLZ4():
         print("  Compressed data selected for this block.")
       else:
         print("  Uncompressed data selected for this block.")
-
-      # legacy format is always compressed
-      if useLegacyFormat:
-        useCompression = True
-      
+     
       # block size
       if useCompression:
         numBytes = len(block)
@@ -770,8 +754,8 @@ class SmallLZ4():
         index = lastBlock - dataZero
         sendBytes( data[index:index + numBytes] )
 
-      # legacy format: no matching across blocks
-      if (useLegacyFormat):
+      # disable matching across blocks if True (was a legacy format code path)
+      if (False):
         dataZero += len(data)
         data = bytearray()
 
@@ -792,8 +776,7 @@ class SmallLZ4():
           data = data[remove:]
 
     # add an empty block
-    if (not useLegacyFormat):
-      sendBytes(struct.pack('i', 0))
+    sendBytes(struct.pack('i', 0))
     
 
 #-------------------------
@@ -865,7 +848,6 @@ if __name__ == '__main__':
   parser.add_argument("-D", "--dict", metavar="file", help="Load dictionary file")
   parser.add_argument("-c", "--compress", type=int, default=9, metavar="int", help="Set compression level (0-9), default: 9")
   parser.add_argument("-f", "--force", help="Overwrite an existing file", action="store_true")
-  parser.add_argument("-l", "--legacy", help="Use LZ4 legacy file format", action="store_true")
   parser.add_argument("-p", "--profile", help="Profile the script", action="store_true")
   parser.add_argument("-w", "--window", type=int, default=SmallLZ4.MaxDistance, help="Set LZ4 window size, default:"+str(SmallLZ4.MaxDistance))
   parser.add_argument("-v", "--verbose", help="Enable verbose mode", action="store_true")

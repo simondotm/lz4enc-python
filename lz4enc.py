@@ -14,8 +14,8 @@ import argparse
 from timeit import default_timer as timer
 import profile
 
-# LZ4 compression with optimal parsing
-class SmallLZ4():
+# LZ4 compression with optimal parsing, based on smallz4, refactored for more general purpose use within Python scripts.
+class LZ4():
 
   # version string
   Version = "1.3"
@@ -82,7 +82,7 @@ class SmallLZ4():
 
     # true, if long enough
     def isMatch(self):
-      return self.length >= SmallLZ4.MinMatch
+      return self.length >= LZ4.MinMatch
 
 
   #-------------------------------------------------------------------------------------------------
@@ -858,7 +858,7 @@ def main(args):
     dst = src + ".lz4"
 
   # enable verbose mode
-  SmallLZ4.Verbose = args.verbose
+  LZ4.Verbose = args.verbose
 
   # check for missing files
   if not os.path.isfile(src):
@@ -866,7 +866,7 @@ def main(args):
     sys.exit()
 
   # create the instance
-  compressor = SmallLZ4()
+  compressor = LZ4()
 
   # set the compression parameters
   compressor.setCompression(args.compress, args.window)
@@ -877,7 +877,8 @@ def main(args):
   fh.close()
 
   # compress into LZ4 file stream
-  print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(args.compress) )
+  if LZ4.Verbose:
+    print("Compressing file '" + src + "' to '" + dst + "', using compression level " + str(args.compress) )
   file_out = compressor.compress(file_in, bytearray())
 
   # write the LZ4 stream to output file
@@ -891,29 +892,30 @@ def main(args):
   if src_size == 0:
     ratio = 0
   else:
-    ratio = 100 - (int)((dst_size / src_size)*100)
+    ratio = 100 - (int)((dst_size*100 / src_size))
 
-  print(" Input file " + str(src_size) + " bytes, Output file " + str(dst_size) + ", (" + str(ratio) + "% compression)" )
+  print("Compressed " + str(src_size) + " bytes into " + str(dst_size) + " bytes => " + str(ratio) + "%" )
 
   end_time = timer()
 
-  t = '{:.2f}'.format(end_time-start_time)
-  print("Completed in " + t + "s.")
+  if LZ4.Verbose:
+    t = '{:.2f}'.format(end_time-start_time)
+    print("Completed in " + t + "s.")
 
 #--------------------------------
 
 # Determine if running as a script
 if __name__ == '__main__':
 
-  print("smallz4 V" + str(SmallLZ4.Version) + ": compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)")
-  print("Written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/")
-  print("Python port 2019 by Simon M, https://github.com/simondotm/")
+  print("lz4enc.py : LZ4 compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)")
+  print("Written in 2019 by Simon M, https://github.com/simondotm/")
+  print("Based on smallz4 written in 2016-2018 by Stephan Brumme https://create.stephan-brumme.com/smallz4/")
   print("")
 
   epilog_string = "Compression levels:\n"
   epilog_string += " -0               No compression\n"
-  epilog_string += " -1 ... -" + str(SmallLZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(SmallLZ4.ShortChainsGreedy) + " matches\n"
-  epilog_string += " -" + str(SmallLZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(SmallLZ4.ShortChainsGreedy+1) + " to 8 matches\n"
+  epilog_string += " -1 ... -" + str(LZ4.ShortChainsGreedy) +"        Greedy search, check 1 to " + str(LZ4.ShortChainsGreedy) + " matches\n"
+  epilog_string += " -" + str(LZ4.ShortChainsGreedy+1) + " ... -8        Lazy matching with optimal parsing, check " + str(LZ4.ShortChainsGreedy+1) + " to 8 matches\n"
   epilog_string += " -9               Optimal parsing, check all possible matches (default)\n"
 
   parser = argparse.ArgumentParser(
@@ -926,7 +928,7 @@ if __name__ == '__main__':
   parser.add_argument("-c", "--compress", type=int, default=9, metavar="int", help="Set compression level (0-9), default: 9")
   parser.add_argument("-f", "--force", help="Overwrite an existing file", action="store_true")
   parser.add_argument("-p", "--profile", help="Profile the script", action="store_true")
-  parser.add_argument("-w", "--window", type=int, default=SmallLZ4.MaxDistance, help="Set LZ4 window size, default:"+str(SmallLZ4.MaxDistance))
+  parser.add_argument("-w", "--window", type=int, default=LZ4.MaxDistance, help="Set LZ4 window size, default:"+str(LZ4.MaxDistance))
   parser.add_argument("-v", "--verbose", help="Enable verbose mode", action="store_true")
   args = parser.parse_args()
 

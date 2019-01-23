@@ -29,63 +29,25 @@ import argparse
 from timeit import default_timer as timer
 import profile
 
-
-#pragma once
-#include <inttypes.h> // uint16_t, uint32_t, ...
-#include <cstdlib>    // size_t
-#include <vector>
 #/// LZ4 compression with optimal parsing
-#/** see smallz4.cpp for a basic I/O interface
-#    you can easily replace it by a in-memory version
-#    then all you have to do is:
-#    #include "smallz4.h"
-#    smallz4::lz4(GET_BYTES, SEND_BYTES);
-#    // for more advanced stuff, you can call lz4 with four parameters (incl. max chain length and a dictionary)
-#**/
 class SmallLZ4():
-#{
-#public:
-#  // read  several bytes, see getBytesFromIn() in smallz4.cpp for a basic implementation
-#  typedef size_t (*GET_BYTES) (      void* data, size_t numBytes);
-#  // write several bytes, see sendBytesToOut() in smallz4.cpp for a basic implementation
-#  typedef void   (*SEND_BYTES)(const void* data, size_t numBytes);
-#  /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
-#  static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
-#                  unsigned int maxChainLength = MaxChainLength,
-#                  bool useLegacyFormat = false)  // this function exists for compatibility reasons
-#  {
-#    lz4(getBytes, sendBytes, maxChainLength, std::vector<unsigned char>());
-#  }
-#  /// compress everything in input stream (accessed via getByte) and write to output stream (via send)
-#  static void lz4(GET_BYTES getBytes, SEND_BYTES sendBytes,
-#                  unsigned int maxChainLength,
-#                  const std::vector<unsigned char>& dictionary, // predefined dictionary
-#                  bool useLegacyFormat = false)                 // old format is 7 bytes smaller if input < 8 MB
-#  {
-#    smallz4 obj(maxChainLength);
-#    obj.compress(getBytes, sendBytes, dictionary, useLegacyFormat);
-#  }
-#  /// version string
+
+  #/// version string
   Version = "1.3"
-#  static const char* const getVersion()
-#  {
-#    return "1.3";
-#  }
-#  // compression level thresholds, made public because I display them in the help screen ...
-#  enum
-#  {
+
+  #// compression level thresholds, made public because I display them in the help screen ...
+
   #/// greedy mode for short chains (compression level <= 3) instead of optimal parsing / lazy evaluation
   ShortChainsGreedy = 3
   #/// lazy evaluation for medium-sized chains (compression level > 3 and <= 6)
   ShortChainsLazy   = 6
-#  };
-#  // ----- END OF PUBLIC INTERFACE -----
-#private:
+
   #// ----- constants and types -----
   #/// a block can be 4 MB
   #typedef uint32_t Length;
   #/// matches must start within the most recent 64k
   #typedef uint16_t Distance;
+
   #/// each match's length must be >= 4
   MinMatch          =  4
   #/// last match must not be closer than 12 bytes to the end
@@ -121,7 +83,19 @@ class SmallLZ4():
   #/// how many matches are checked in findLongestMatch, lower values yield faster encoding at the cost of worse compression ratio
   #unsigned int maxChainLength;
   #//  ----- code -----
-  #/// match
+  
+  #/// create new compressor (only invoked by lz4)
+  def __init__(self, level = 9):
+    if (level >= 9):
+      newMaxChainLength = 65536  #// "unlimited" because search window contains only 2^16 bytes 
+    else:
+      newMaxChainLength = level
+
+    self.maxChainLength = newMaxChainLength
+    #// => no limit, but can be changed by setMaxChainLength
+
+
+  #/// match struct
   class Match:
   
     def __init__(self):
@@ -133,18 +107,6 @@ class SmallLZ4():
     #/// true, if long enough
     def isMatch(self):
       return self.length >= SmallLZ4.MinMatch
-
-
-  
-  #/// create new compressor (only invoked by lz4)
-  def __init__(self, level = 9):
-    if (level >= 9):
-      newMaxChainLength = 65536  #// "unlimited" because search window contains only 2^16 bytes 
-    else:
-      newMaxChainLength = level
-
-    self.maxChainLength = newMaxChainLength
-    #// => no limit, but can be changed by setMaxChainLength
 
   #/// return true, if the four bytes at *a and *b match
   #inline static bool match4(const void* const a, const void* const b)
@@ -280,7 +242,7 @@ class SmallLZ4():
   #/** data points to block's begin; we need it to extract literals **/
   #static std::vector<unsigned char> selectBestMatches(const std::vector<Match>& matches,
   #                                                    const unsigned char* const data)
-  # returns byte array
+  # returns bytearray
   def selectBestMatches(self, matches, data, index):
     #// store encoded data
     result = bytearray()
@@ -342,14 +304,7 @@ class SmallLZ4():
         else:
           token |= 15
 
-      # debug oddity with html compressor
-      #if matchLength == 77:
-      #  print("FUCK")
-
-      #print(token)
-      #print(type(token))
       result.append( token ) #struct.pack('B', token) )
-      #print(result)
 
       #// >= 15 literals ? (extra bytes to store length)
       if (numLiterals >= 15):
@@ -363,7 +318,6 @@ class SmallLZ4():
           numLiterals -= 255
         
         #// and the last byte (can be zero, too)
-        #result.append( struct.pack('B', numLiterals) )
         result.append(numLiterals)
       
       #// copy literals
@@ -380,9 +334,7 @@ class SmallLZ4():
         break
 
       #// distance stored in 16 bits / little endian
-      #result.append( struct.pack('B', match.distance & 0xFF) )
       result.append( match.distance & 0xFF )
-      #result.append( struct.pack('B', (match.distance >> 8) & 0xFF) )
       result.append( (match.distance >> 8) & 0xFF )
       #// >= 15+4 bytes matched (4 is implied because it's the minimum match length)
       if (matchLength >= 15):
@@ -390,12 +342,10 @@ class SmallLZ4():
         matchLength -= 15
         #// emit 255 until remainder is below 255
         while (matchLength >= 255):
-          #result.append( struct.pack('B', 255) )
           result.append(255)
           matchLength -= 255
         
         #// and the last byte (can be zero, too)
-        #result.append( struct.pack('B', matchLength) )
         result.append(matchLength)
       
     
@@ -404,7 +354,6 @@ class SmallLZ4():
   #/// walk backwards through all matches and compute number of compressed bytes from current position to the end of the block
   #/** note: matches are modified (shortened length) if necessary **/
   #static void estimateCosts(std::vector<Match>& matches)
-  #{
   def estimateCosts(self, matches):
     blockEnd = len(matches)
     #typedef uint32_t Cost

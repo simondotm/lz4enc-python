@@ -842,6 +842,11 @@ class LZ4():
     # set the sliding window size, 65535 is the default since that is the maximum supported by the 16-bit offset format (ignoring 0, which is an invalid value)
     self.MaxDistance = windowSize
 
+  def getCompressionLevel(self):
+    return self.maxChainLength
+
+  def getWindowSize(self):
+    return self.MaxDistance
 
   #--------------------------------------------------------------------------------------------------------------------------------
   # compress everything in input stream (accessed via getByte) and write to complete LZ4 output stream
@@ -849,7 +854,7 @@ class LZ4():
   #--------------------------------------------------------------------------------------------------------------------------------
   # inputData, and dictionary are bytearray's
   # returns a bytearray containing the compressed LZ4 stream
-  def compress(self, inputData, dictionary):
+  def compress(self, inputData, dictionary = bytearray()):
     outputBuffer = bytearray()
     self.beginFrame(outputBuffer)
     compressedBlock = self.compressBlock(inputData, dictionary)

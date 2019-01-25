@@ -57,6 +57,12 @@ class LZ4():
   MaxBlockSizeId = 7
   MaxBlockSize   = 4*1024*1024
 
+  # Number of bytes used to store match distances.
+  # 2 bytes (16-bits) is the LZ4 default
+  # If MaxDistance < 256, this can be set to 1 and the compressor will emit only 1 byte for distance offset rather than 2.
+  # Note that changing this value will create non-compliant LZ4 data streams and require a customized decompressor
+  DistanceByteSize = 2
+
   # Verbose mode
   Verbose = False
 
@@ -343,9 +349,18 @@ class LZ4():
         self.stats["sameOffsetCount"] += 1
       self.stats["lastOffset"] = match.distance
 
-      # distance stored in 16 bits / little endian
-      result.append( match.distance & 0xFF )
-      result.append( (match.distance >> 8) & 0xFF )
+      # distance stored as 1 or two bytes in data stream
+      if self.DistanceByteSize == 1:
+        assert match.distance < 256
+        # distance stored in 8 bits (non LZ4 compliant, but optimal data size - requires modified decoder)
+        result.append( match.distance & 0xFF )
+      else:
+        # distance stored in 16 bits / little endian
+        result.append( match.distance & 0xFF )
+        result.append( (match.distance >> 8) & 0xFF )
+
+
+
       # >= 15+4 bytes matched (4 is implied because it's the minimum match length)
       if (matchLength >= 15):
         # 15 is already encoded in token
@@ -417,8 +432,8 @@ class LZ4():
       # try all match lengths (first short ones)
       for length in range(self.MinMatch, match.length+1):
       
-        # token (1 byte) + offset (2 bytes)
-        currentCost = cost[i + length] + 1 + 2
+        # token (1 byte) + offset (1 or 2 bytes)
+        currentCost = cost[i + length] + 1 + self.DistanceByteSize # might be 1 byte offset cost instead of 2
 
         # very long matches need extra bytes for encoding match length
         if (length >= 19):
@@ -449,7 +464,7 @@ class LZ4():
           # assume that longest match is always the best match
           # however, this assumption might not be optimal
           bestLength = match.length
-          minCost    = cost[i + match.length] + 1 + 2 + 1 + (match.length - 19) / 255
+          minCost    = cost[i + match.length] + 1 + self.DistanceByteSize + 1 + (match.length - 19) / 255
           break
         
       

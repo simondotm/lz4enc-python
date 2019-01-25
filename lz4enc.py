@@ -71,6 +71,31 @@ class LZ4():
   #-------------------------------------------------------------------------------------------------
   def __init__(self, level = 9):
     self.setCompression(level)
+    self.stats = {}
+
+  #-------------------------------------------------------------------------------------------------
+  # The encoder tracks compression statistics to enable output analysis
+  # LZ4.resetStats() is called by LZ4.beginFrame()
+  # it can also be called manually if compressing using LZ4.compressBlock()
+  #-------------------------------------------------------------------------------------------------
+  def resetStats(self):
+    self.stats = {}
+    # OLD COMMENT matchLength can be 4 + 14 + 254 in 12-bits = 272
+    self.stats["tokenCount"] = 0      # number of tokens in this block
+    self.stats["largestOffset"] = 0   # largest stored match distance in this block
+    self.stats["largestLength"] = 0   # largest stored match length in this block
+    self.stats["byteOffsetCount"] = 0 # number of match distances that were 255 or less
+    self.stats["sameOffsetCount"] = 0 # number of match distances that were the same as the previous one
+    self.stats["lastOffset"] = -1     # temporary var for tracking the last match distance
+
+    # Gather LZ4 output data streams as separate blocks rather than the usual interleaved output (useful for creating custom formats)
+    # Inspired by LZ5, more optimal non-LZ4 compatible output formats can be created by huffman encoding this data. 
+    self.stats["tokens"] = []         # array of tokens stored in this block
+    self.stats["offsets"] = []        # array of offsets (match distances) stored in this block
+    self.stats["lengths"] = []        # array of match lengths stored in this block
+    self.stats["literal_bytes"] = []  # array of literals byte stream data (as per LZ5)
+    self.stats["lengths_bytes"] = []  # array of lengths byte stream data (as per LZ5) - literal lengths first, then match lengths (where length stored in the token was 15)
+    
 
   #-------------------------------------------------------------------------------------------------
   # match struct
@@ -213,14 +238,6 @@ class LZ4():
     # store encoded data
     result = bytearray()
 
-    # matchLength can be 4 + 14 + 254 in 12-bits = 272
-    tokenCount = 0
-    largestOffset = 0
-    largestLength = 0
-    byteOffsetCount = 0
-    sameOffsetCount = 0
-    lastOffset = -1
-
     # indices of current literal run
     literalsFrom = 0
     literalsTo   = 0 # point beyond last literal of the current run
@@ -278,8 +295,11 @@ class LZ4():
           token |= 15
 
       result.append( token ) #struct.pack('B', token) )
+      self.stats["tokens"].append( token )
 
-      tokenCount += 1
+      self.stats["tokenCount"] += 1    
+      self.stats["offsets"].append( match.distance )
+      self.stats["lengths"].append( matchLength )
 
 
       # >= 15 literals ? (extra bytes to store length)
@@ -290,16 +310,21 @@ class LZ4():
         # emit 255 until remainder is below 255
         while (numLiterals >= 255):       
           result.append(255)
+          self.stats["lengths_bytes"].append(255)
           numLiterals -= 255
         
         # and the last byte (can be zero, too)
         result.append(numLiterals)
+        self.stats["lengths_bytes"].append(numLiterals)
       
       # copy literals
       if (literalsFrom != literalsTo):
       
         subset = data[index + literalsFrom:index + literalsTo]
         result.extend( subset )
+        for z in subset:
+          self.stats["literal_bytes"].append(z)
+
         literalsFrom = 0
         literalsTo = 0
       
@@ -308,15 +333,15 @@ class LZ4():
         break
 
       # stats
-      if match.distance > largestOffset:
-        largestOffset = match.distance
-      if matchLength > largestLength:
-        largestLength = matchLength
+      if match.distance > self.stats["largestOffset"]:
+        self.stats["largestOffset"] = match.distance
+      if matchLength > self.stats["largestLength"]:
+        self.stats["largestLength"] = matchLength
       if match.distance < 256:
-        byteOffsetCount += 1
-      if match.distance == lastOffset:
-        sameOffsetCount += 1
-      lastOffset = match.distance
+        self.stats["byteOffsetCount"] += 1
+      if match.distance == self.stats["lastOffset"]:
+        self.stats["sameOffsetCount"] += 1
+      self.stats["lastOffset"] = match.distance
 
       # distance stored in 16 bits / little endian
       result.append( match.distance & 0xFF )
@@ -328,10 +353,12 @@ class LZ4():
         # emit 255 until remainder is below 255
         while (matchLength >= 255):
           result.append(255)
+          self.stats["lengths_bytes"].append(255)
           matchLength -= 255
         
         # and the last byte (can be zero, too)
         result.append(matchLength)
+        self.stats["lengths_bytes"].append(matchLength)
       
 
     # debug output
@@ -816,6 +843,12 @@ class LZ4():
     # header checksum (precomputed)
     checksum = 0xDF
     outputBuffer.append( struct.pack('B', checksum) )
+
+    # reset stats for each frame
+    # (can be manually called per-block also if desired)
+    self.resetStats()
+
+
   
   #-------------------------------------------------------------------------------------------------
   # Emit an LZ4 compatible frame end signal (a block with size 0)

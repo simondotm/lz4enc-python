@@ -34,32 +34,8 @@ The code isn't guaranteed to be bug free, but so far it checks out! Feel free to
 
 The only change I made was to allow a command line parameter to override the default maximum LZ4 compression "window size" of 65,335 bytes. It's useful for comparison purposes to be able to change this to smaller sizes. LZ4 stores match offsets in 16-bits so using a smaller window does mean the data storage is less efficient, but retains byte stream compatibility.
 
-## General Notes
+#### Usage
 
-#### LZ4 Notes
-LZ4 is simple. LZ4 is fast. It also can offer decent compression.
-
-It uses 64Kb sliding windows, which is fine if you are unpacking in place because the sliding window is the previously decoded stream.
-
-Byte streaming is possible by allowing a 'fetch byte' routine that pulls from the decoded stream window up until the history point, at which point more decoding is required.
-If byte streaming isnt needed, the history buffer is not required since the decoded stream represents that buffer and for 8-bit machines a 64Kb window is fine.
-
-LZ4 uses 64Kb windows because the match offset field is 16-bits. In principle the encoder can be modified to use a smaller match distance without breaking compatibility.
-
-LZ4 also supports dictionaries, in so much that they are prepended to the history window at the start of compression & decompression to give them context of available matches.
-This is very useful for small files that contain repetitive or common phrases, since small files typically dont compress well due to the fact they dont have much data to build a dictionary.
-
-#### Other considerations
-
-Exomiser is great at compression, but it is slow(er) and a complex file format.
-ZStandard is interesting, but the implementation is complex.
-LZW uses dictionary tables rather than sliding windows, and not suited to low power/memory CPU environments.
-
-LZO/LZMO are other variants I looked at, but settled on LZ4.
-
-## Usage
-
-### `smallz4.py`
 
 ```
 smallz4 V1.3: compressor with optimal parsing, fully compatible with LZ4 by Yann Collet (see https://lz4.org)
@@ -94,6 +70,96 @@ Compression levels:
  -9               Optimal parsing, check all possible matches (default)
 ```
 
+### `lz4enc.py`
+
+`lz4enc.py` is a more general purpose version of `smallz4.py` intended for use as an imported class interface. The API isn't fancy, it was designed to suit my own needs.
+
+#### Usage
+
+Importing:
+```
+from lz4enc import LZ4
+```
+
+Setting the compression parameters:
+```
+LZ4.setCompression( [int] compressionLevel, [int] windowSize = 65535)
+```
+
+
+Compressing a bytearray input buffer to a compressed LZ4 file output bytearray, complete with frames:
+```
+[bytearray] output = LZ4.compress( [bytearray] inputData, [bytearray] dictionary = bytearray())
+```
+
+Emit an LZ4 compatible frame header to the outputBuffer bytearray.
+```
+LZ4.beginFrame( [bytearray] outputBuffer)
+```
+
+Compressing a bytearray input buffer to a compressed LZ4 block output byte array, optionally using dictionary as a seed for the encoder.
+```
+LZ4.compressBlock( [bytearray] inputData, [bytearray] dictionary = bytearray())
+```
+Emit an LZ4 compatible frame end signal (a block with size 0) to the outputBuffer
+```
+LZ4.endFrame( [bytearray] outputBuffer)
+```
+
+#### Example
+
+```
+
+from lz4enc import LZ4 
+
+output = bytearray()
+
+compressor = LZ4()
+level = 9
+window = 65535
+compressor.setCompression(level, window)
+
+compressor.beginFrame(output)
+
+block_in = open(input_filename, "rb").read()
+
+dictionary = bytearray()
+
+block_out = compressor.compressBlock(block_in, dictionary)
+
+output.extend(block_out)
+
+
+compressor.endFrame(output)
+
+open(output_filename, "wb").write(output)
+
+```
+
+
+
+## General Notes
+
+#### LZ4 Notes
+LZ4 is simple. LZ4 is fast. It also can offer decent compression.
+
+It uses 64Kb sliding windows, which is fine if you are unpacking in place because the sliding window is the previously decoded stream.
+
+Byte streaming is possible by allowing a 'fetch byte' routine that pulls from the decoded stream window up until the history point, at which point more decoding is required.
+If byte streaming isnt needed, the history buffer is not required since the decoded stream represents that buffer and for 8-bit machines a 64Kb window is fine.
+
+LZ4 uses 64Kb windows because the match offset field is 16-bits. In principle the encoder can be modified to use a smaller match distance without breaking compatibility.
+
+LZ4 also supports dictionaries, in so much that they are prepended to the history window at the start of compression & decompression to give them context of available matches.
+This is very useful for small files that contain repetitive or common phrases, since small files typically dont compress well due to the fact they dont have much data to build a dictionary.
+
+#### Other considerations
+
+Exomiser is great at compression, but it is slow(er) and a complex file format.
+ZStandard is interesting, but the implementation is complex.
+LZW uses dictionary tables rather than sliding windows, and not suited to low power/memory CPU environments.
+
+LZO/LZMO are other variants I looked at, but settled on LZ4.
 
 ## References
 
@@ -105,7 +171,7 @@ Compression levels:
 * [LZ4 Command Line Man Page](https://www.systutorials.com/docs/linux/man/1-lz4/)
 * [Useful article on dictionary-based compression](http://fastcompression.blogspot.com/2018/02/when-to-use-dictionary-compression.html)
 * [Great Explanation of LZ4 decompression (and other compression methods suited to older hardware)](http://www.brutaldeluxe.fr/products/crossdevtools/lz4/index.html)
-
+* LZ4 file format - [Frame format](https://github.com/lz4/lz4/blob/dev/doc/lz4_Frame_format.md), [Block format](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md)
 
 ### Lizard/LZ5
 * If you are interested in how LZ4 can be improved (better compression but with similar high performance decompression) take a look at [Lizard (was LZ5)](https://github.com/inikep/lizard)

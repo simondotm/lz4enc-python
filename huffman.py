@@ -6,8 +6,13 @@ from heapq import *
 import array
 from collections import defaultdict
 
-
+# Notes about this implementation:
+#  1) It does not support EOF huffman codes. This makes it simpler for use with 8-bit/byte based alphabets.
+#     Instead we transmit the unpacked size as an indicator for how many symbols exist in the file. We also transmit the number of padding bits.
+#  2) We only support huffman code sizes upto and including 16 bits in length.
 class Huffman:
+
+    #MAX_CODE_BIT_LENGTH = 16
 
     def __init__(self):
         self.key = {}
@@ -22,7 +27,7 @@ class Huffman:
         self.frequency = defaultdict(int)
         for c in phrase:
             self.frequency[c] += 1
-        self.frequency[256] = 1
+        #self.frequency[256] += 1 # EOF
         
 
     def buildTree(self):
@@ -45,7 +50,9 @@ class Huffman:
 
     def buildCanonical(self):
         print("Building canonical table")
-        self.table = [0] * 257
+        #self.table = [0] * 257 # EOF
+        self.table = [0] * 256
+
         for k in self.key:
             self.table[k] = len(self.key[k])
         #print(self.table)
@@ -53,7 +60,8 @@ class Huffman:
 
 
         ktable = [] #[(0,0)] * 256
-        for n in range(257):
+        #for n in range(257): # EOF
+        for n in range(256):
             if n in self.key:
                 ktable.append( (len(self.key[n]), n ) )
             #else:
@@ -125,6 +133,14 @@ class Huffman:
 
         output = bytearray()
 
+        # reserve space for 4 bytes header
+        # 3 bytes size, 1 byte wasted bits.
+        output.append(0)
+        output.append(0)
+        output.append(0)
+        output.append(0)
+
+
         # send the header for decoding
     
         # 16 bytes for the code bit lengths - the number of symbols that have a code of the given bit length 
@@ -147,11 +163,14 @@ class Huffman:
 
         sz = 0
 
-        for i in range(len(phrase)+1):
-            if i == len(phrase):
-                c = 256
-            else:
-                c = phrase[i]
+        # EOF
+        #for i in range(len(phrase)+1):
+        #    if i == len(phrase):
+        #        c = 256
+        #    else:
+        #        c = phrase[i]
+
+        for c in phrase:
             k = self.key[c]
             sz += len(k)
             for b in k:
@@ -164,18 +183,29 @@ class Huffman:
                     currentbyte = 0
                     numbitsfilled = 0                  
 
-        # align to byte.
-        while (numbitsfilled < 8):
+        # align to byte. we could emit code >7 bits in length to prevent decoder finding a spurious code at the end, but its likely
+        # some data sets may contain codes <7 bits. Easier to pad wasted bytes.
+ 
+        wastedbits = (8 - numbitsfilled) & 7
+        print("wastedbits=" + str(wastedbits))
+        while (numbitsfilled < 8) and wastedbits:
             currentbyte = (currentbyte << 1) | 1
             numbitsfilled += 1
         output.append(currentbyte)
 
+        # emit final bytes informing decoder size of the uncompressed stream (ie. number of symbols to decode) and how many bits were wasted
+        num_symbols = len(phrase)
+        print("num_symbols=" + str(num_symbols))
+        output[0] = num_symbols & 255
+        output[1] = (num_symbols >> 8) & 255
+        output[2] = (num_symbols >> 16) & 255
+        output[3] = ((num_symbols >> 24) & 31) | (wastedbits << 5)
 
-
-
-        print("calc size=" + str(sz/8))
+        print("output size=" + str(len(output)))
 
         open("z.huf", "wb").write( output ) 
+        #open("z.hufsrc", "wb").write( phrase ) 
+
         # test decode
         self.decode(output, phrase)
         return output
@@ -185,9 +215,13 @@ class Huffman:
         print("test decode")
 
         # read the header
-        length_table = data[0:16]
+        length_table = data[4:20]
         symbol_count = length_table[0]
-        symbol_table = data[16:16+symbol_count]
+        symbol_table = data[20:20+symbol_count]
+
+        unpacked_size = data[0] + (data[1]<<8) + (data[2]<<16) + ((data[3] & 31)<<24) # uncompressed size
+        print("unpacked_size=" + str(unpacked_size))
+        wastedbits = data[3] >> 5
 
         # decode the results        
 
@@ -210,7 +244,7 @@ class Huffman:
 
 
         # decode the stream
-        currentbyte = symbol_count + 16
+        currentbyte = 20 + symbol_count
         bitbuffer = 0
         numbitsbuffered = 0
         code = 0                            # word
@@ -238,7 +272,9 @@ class Huffman:
         # therefore we have to maintain 8 huffman contexts also.
 
         sourceindex = 0
-        while currentbyte < len(data):
+
+        unpacked = 0
+        while unpacked < unpacked_size: # currentbyte < len(data):
 
             # keep the bitbuffer going
             if numbitsbuffered == 0:
@@ -271,13 +307,12 @@ class Huffman:
             indexForCurrentNumBits = code - firstCodeWithNumBits
             if indexForCurrentNumBits < numCodes:
                 code = startIndexForCurrentNumBits + indexForCurrentNumBits
-                # if its the last symbol in the table, EOF
-                if code == len(symbol_table) - 1:
-                    print("EOF")
+                ## if its the last symbol in the table, EOF
+                #if code == len(symbol_table) - 1:
+                #    print("EOF")
                 symbol = symbol_table[code] #self.table_symbols[startIndexForCurrentNumBits + indexForCurrentNumBits]
                 output.append(symbol)
                 expected = source[sourceindex]
-                #print(" found symbol " + str(symbol) + ", expected " + str(expected))
                 assert symbol == expected
                 sourceindex += 1
 
@@ -285,7 +320,11 @@ class Huffman:
                 code_size = 0
 
                 firstCodeWithNumBits = 0
-                startIndexForCurrentNumBits = 0                
+                startIndexForCurrentNumBits = 0      
+
+                unpacked += 1          
+
+                #print(" found symbol n=" + str(unpacked) + ", " + str(symbol) + ", expected " + str(expected))
 
             else:
                 # otherwise, move to the next bit length

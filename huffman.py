@@ -10,6 +10,7 @@ from collections import defaultdict
 #  1) It does not support EOF huffman codes. This makes it simpler for use with 8-bit/byte based alphabets.
 #     Instead we transmit the unpacked size as an indicator for how many symbols exist in the file. We also transmit the number of padding bits.
 #  2) We only support huffman code sizes upto and including 16 bits in length.
+
 class Huffman:
 
     MAX_CODE_BIT_LENGTH = 16
@@ -52,65 +53,73 @@ class Huffman:
     # compute canonical versions of the huffman codes
     def buildCanonical(self):
         print("Building canonical table")
-        self.table = [0] * Huffman.MAX_SYMBOLS
-
-        for k in self.key:
-            self.table[k] = len(self.key[k])
-        #print(self.table)
-
+        #self.table = [0] * Huffman.MAX_SYMBOLS
+        #for k in self.key:
+        #    self.table[k] = len(self.key[k])
+        ##print(self.table)
 
 
-        ktable = [] #[(0,0)] * 256
-
+        # convert the tree to an array of (bitlength, symbol) tuples
+        ktable = []
         for n in range(Huffman.MAX_SYMBOLS):
             if n in self.key:
                 ktable.append( (len(self.key[n]), n ) )
-            #else:
-            #    ktable[n] = (0, n)
+
+        # sort them into bitlength then symbol order
         ktable.sort( key=lambda x: (x[0], x[1]) )
+
+        # get bit range
         minbits = ktable[0][0]
-        maxbits = max(self.table)
+        maxbits = ktable[-1][0] # max(self.table)
+        assert minbits > 0
+        assert maxbits <= Huffman.MAX_CODE_BIT_LENGTH
         #print("maxbits=" + str(maxbits) + ", minbits=" + str(minbits))
 
         #print("sorted canonical table")
         #print(ktable)
 
-        self.table_bitlengths = [0] * Huffman.MAX_CODE_BIT_LENGTH
+        # create a local table for the sorted bitlengths and tables
+        self.table_bitlengths = [0] * (Huffman.MAX_CODE_BIT_LENGTH+1)
         self.table_symbols = []
 
-        # build the decoder tables
+        # build the tables needed for decoding 
+        # - an array where array[n] is the number of symbols with bitlength n
+        # - an array of the symbols, in ascending order 
         for k in ktable:
             self.table_bitlengths[k[0]] += 1
             self.table_symbols.append(k[1])
-        print("decoder tables (size=" + str(len(self.table_bitlengths)+len(self.table_symbols)) + ")")
-        print(self.table_bitlengths)
-        print(self.table_symbols)
+
+        #print("decoder tables (size=" + str(len(self.table_bitlengths)+len(self.table_symbols)) + ")")
+        #print(self.table_bitlengths)
+        #print(self.table_symbols)
 
 
-        newtable = {}
-        bitlength = minbits
-        code = 0
 
         #code = 0
         #while more symbols:
         #    print symbol, code
         #    code = (code + 1) << ((bit length of the next symbol) - (current bit length))
 
-
+        # now we build the canonical codes, replacing the previously calculated codes as we go.
+        #newtable = {}
+        bitlength = minbits
+        code = 0
         numsymbols = len(ktable)
         for n in range(numsymbols):
             k = ktable[n]
             bitlength = k[0]
-            codestring = format(code, '0' + str(bitlength) + 'b')                
-            newtable[k[1]] = codestring
+            codestring = format(code, '0' + str(bitlength) + 'b') # convert the code to a binary format string, leading zeros set to bitlength                
+            #newtable[k[1]] = codestring
+            self.key[k[1]] = codestring
             code = (code + 1) 
             if n < (numsymbols - 1):
-                code <<= (ktable[n+1][0]-bitlength)
+                code <<= ( ktable[n+1][0] - bitlength )
             #print("n=" + str(n) + ", bitlength=" + str(k[0]) + ", symbol=" + str(k[1]) + ", code=" + codestring + ", check=" + str(len(codestring)==bitlength))
         #print(newtable)
  
-        for k in self.key:
-            self.key[k] = newtable[k]
+        ## replace the previously calculated codes with the new canonical codes.
+        #for k in self.key:
+        #    self.key[k] = newtable[k]
 
 
 
@@ -145,7 +154,7 @@ class Huffman:
         # send the header for decoding
     
         # 16 bytes for the code bit lengths - the number of symbols that have a code of the given bit length 
-        assert len(self.table_bitlengths) == Huffman.MAX_CODE_BIT_LENGTH
+        assert len(self.table_bitlengths) == (Huffman.MAX_CODE_BIT_LENGTH+1)
 
         # However no codes have a bit length of zero, so we use that field to transmit how many symbols exist
         # This way we can transmit the minimum amount of header data.
@@ -209,9 +218,9 @@ class Huffman:
         print("test decode")
 
         # read the header
-        length_table = data[4:20]
+        length_table = data[4:21]
         symbol_count = length_table[0]
-        symbol_table = data[20:20+symbol_count]
+        symbol_table = data[21:21+symbol_count]
 
         unpacked_size = data[0] + (data[1]<<8) + (data[2]<<16) + ((data[3] & 31)<<24) # uncompressed size
         print("unpacked_size=" + str(unpacked_size))
@@ -222,7 +231,7 @@ class Huffman:
         output = bytearray()
 
         # decode the stream
-        currentbyte = 20 + symbol_count
+        currentbyte = 21 + symbol_count
         bitbuffer = 0
         numbitsbuffered = 0
         code = 0                            # word
@@ -231,13 +240,15 @@ class Huffman:
         firstCodeWithNumBits = 0            # word
         startIndexForCurrentNumBits = 0     # byte
 
-        # 6502 workspace
-        # (2) stream read ptr (can replace the one used by lz4, so no extra)
+        # 6502 workspace - assuming max 16-bit codes
+        # init
         # (2) table_bitlengths - only referenced once, can perhaps be self modified
         # (2) table_symbols - only referenced once, can perhaps be self modified, implied +16 from table_bitlengths
+        # per stream
+        # (2) stream read ptr (can replace the one used by lz4, so no extra)
         # (1) bitbuffer
         # (1) bitsleft
-        # only needed during symbol fetch
+        # per symbol fetch
         # (2) code
         # (2) firstCodeWithNumBits
         # (1) startIndexForCurrentNumBits

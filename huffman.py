@@ -13,7 +13,7 @@ from collections import defaultdict
 
 class Huffman:
 
-    MAX_CODE_BIT_LENGTH = 16
+    MAX_CODE_BIT_LENGTH = 20
     MAX_SYMBOLS = 256
 
     def __init__(self):
@@ -124,7 +124,7 @@ class Huffman:
 
 
 
-    def encode(self, phrase):
+    def encode(self, phrase, blockHeader = True, tableHeader = True):
 
         print("canonical table")
         self.buildCanonical()
@@ -143,36 +143,44 @@ class Huffman:
 
         output = bytearray()
 
-        # reserve space for 4 bytes header
-        # 3 bytes size, 1 byte wasted bits.
-        output.append(0)
-        output.append(0)
-        output.append(0)
-        output.append(0)
-
+        if blockHeader:
+            # emit optional 4 byte header
+            # 4 bytes unpacked size with top 3 bits being number of wasted bits in the stream. 
+            # this informs the decoder of the size of the uncompressed stream (ie. number of symbols to decode) and how many bits were wasted
+            num_symbols = len(phrase)
+            print("num_symbols=" + str(num_symbols))
+            output.append( num_symbols & 255 )
+            output.append( (num_symbols >> 8) & 255 )
+            output.append( (num_symbols >> 16) & 255 )
+            output.append( ((num_symbols >> 24) & 31) )
 
         # send the header for decoding
-    
-        # 16 bytes for the code bit lengths - the number of symbols that have a code of the given bit length 
-        assert len(self.table_bitlengths) == (Huffman.MAX_CODE_BIT_LENGTH+1)
+        if tableHeader:
+            # 1 byte symbol count
+            # We could compute this as the sum of the non-zero bitlengths.  
+            output.append( len(self.table_symbols) ) # size of symbol table            
+        
+            # emit N bytes for the code bit lengths (ie. the number of symbols that have a code of the given bit length)
+            assert len(self.table_bitlengths) == (Huffman.MAX_CODE_BIT_LENGTH+1)
 
-        # However no codes have a bit length of zero, so we use that field to transmit how many symbols exist
-        # This way we can transmit the minimum amount of header data.
-        # By happy coincidence this is of course the same as the sum of the non-zero bitlengths.  
-        self.table_bitlengths[0] = len(self.table_symbols)
-        for n in self.table_bitlengths:
-            output.append(n)
+            # We exploit the fact that no codes have a bit length of zero, so we use that field to transmit how long the bit length table is (in bytes)
+            # This way we have a variable length header, and transmit the minimum amount of header data.
+            self.table_bitlengths[0] = maxcodelen #len(self.table_symbols)
+            for n in range(maxcodelen+1):
+                output.append(self.table_bitlengths[n])
+            #for n in self.table_bitlengths:
+            #    output.append(n)
 
-        # N bytes for the symbols table
-        for n in self.table_symbols:
-            output.append(n & 255)
+            # emit N bytes for the symbols table
+            for n in self.table_symbols:
+                output.append(n & 255)
 
-        # huffman encode the data
+        # huffman encode and transmit the data stream
         currentbyte = 0  # The accumulated bits for the current byte, always in the range [0x00, 0xFF]
         numbitsfilled = 0  # Number of accumulated bits in the current byte, always between 0 and 7 (inclusive)
 
         sz = 0
-
+        # for each symbol in the input data, fetch the assigned code and emit it to the output bitstream
         for c in phrase:
             k = self.key[c]
             sz += len(k)
@@ -181,14 +189,13 @@ class Huffman:
                 assert bit == 0 or bit == 1
                 currentbyte = (currentbyte << 1) | bit
                 numbitsfilled += 1
-                if numbitsfilled == 8:
+                if numbitsfilled == 8:  # full byte, flush to output
                     output.append(currentbyte)
                     currentbyte = 0
                     numbitsfilled = 0                  
 
         # align to byte. we could emit code >7 bits in length to prevent decoder finding a spurious code at the end, but its likely
-        # some data sets may contain codes <7 bits. Easier to pad wasted bytes.
- 
+        # some data sets may contain codes <7 bits. Easier to just pad wasted bytes.
         wastedbits = (8 - numbitsfilled) & 7
         print("wastedbits=" + str(wastedbits))
         while (numbitsfilled < 8) and wastedbits:
@@ -196,13 +203,10 @@ class Huffman:
             numbitsfilled += 1
         output.append(currentbyte)
 
-        # emit final bytes informing decoder size of the uncompressed stream (ie. number of symbols to decode) and how many bits were wasted
-        num_symbols = len(phrase)
-        print("num_symbols=" + str(num_symbols))
-        output[0] = num_symbols & 255
-        output[1] = (num_symbols >> 8) & 255
-        output[2] = (num_symbols >> 16) & 255
-        output[3] = ((num_symbols >> 24) & 31) | (wastedbits << 5)
+        if blockHeader:
+            # set wastedbits on the blockheader
+            output[3] |= (wastedbits << 5)
+
 
         print("output size=" + str(len(output)))
 
@@ -218,20 +222,24 @@ class Huffman:
         print("test decode")
 
         # read the header
-        length_table = data[4:21]
-        symbol_count = length_table[0]
-        symbol_table = data[21:21+symbol_count]
 
+        # get the unpacked size - this tells us how many symbols to decode
         unpacked_size = data[0] + (data[1]<<8) + (data[2]<<16) + ((data[3] & 31)<<24) # uncompressed size
         print("unpacked_size=" + str(unpacked_size))
         wastedbits = data[3] >> 5
 
-        # decode the results        
+        
+        symbol_table_size = data[4]      # fetch the number of symbols in the symbol table
+        length_table_size = data[5] + 1  # fetch the number of entries in the bit length table (+1 because we include zero)
+
+        length_table = data[5:5+length_table_size]
+        symbol_table = data[5+length_table_size:5+length_table_size+symbol_table_size]
+
+        # decode the stream
+        currentbyte = 5 + length_table_size + symbol_table_size
 
         output = bytearray()
 
-        # decode the stream
-        currentbyte = 21 + symbol_count
         bitbuffer = 0
         numbitsbuffered = 0
         code = 0                            # word

@@ -1,6 +1,8 @@
+# Huffman.py
 # Succinct Huffman encoder with canonical code output
 # based on https://github.com/adamldoyle/Huffman
-# @simondotm
+# Written by https://github.com/simondotm 2019
+# https://github.com/simondotm/lz4enc-python
 
 from heapq import *
 import array

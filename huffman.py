@@ -14,14 +14,15 @@ from collections import defaultdict
 #     Instead we transmit the unpacked size as an indicator for how many symbols exist in the file. We also transmit the number of padding bits.
 #  2) We only support huffman code sizes upto and including 16 bits in length.
 #  3) Intended for use on small files (ie. < 10Mb), since much of the code uses in-memory manipulation. 
-#  4) It generates a canonical code table, and emits a header as follows:
+#  4) It is binary byte based rather than text based
+#  5) It generates a canonical code table, and emits a header as follows:
 #       [4 bytes][Uncompressed data size]
-#       [1 byte][Number of symbols Ns in symbol table]
+#       [1 byte][Number of symbols Ns in symbol table, 0 means 256]
 #       [1 byte][Number of entries Nb in the bitlength table]
 #       [Nb bytes][bit length table]
 #       [Ns bytes][symbol table]
 #       [Data...]
-#  5) See decode() for example parsing
+#  6) See decode() for example parsing
 #
 # TODO: add a peek table
 
@@ -32,8 +33,9 @@ if sys.version_info[0] > 2:
 
 class Huffman:
 
-    MAX_CODE_BIT_LENGTH = 20
-    MAX_SYMBOLS = 256
+    MAX_CODE_BIT_LENGTH = 20    # change this if you need to check the codes are within a specific bit length range
+    MAX_SYMBOLS = 256           # just for clarity of code. 
+    VERBOSE = False
 
     def __init__(self):
         self.key = {}
@@ -88,12 +90,7 @@ class Huffman:
         maxbits = ktable[-1][0]
         # make sure our codes comply with the length constraints
         assert minbits > 0
-        assert maxbits <= Huffman.MAX_CODE_BIT_LENGTH
-        #print("maxbits=" + str(maxbits) + ", minbits=" + str(minbits))
-        #print(str(Huffman.MAX_CODE_BIT_LENGTH))
-        #print("sorted canonical table")
-        #print(ktable)
-
+        assert maxbits <= self.MAX_CODE_BIT_LENGTH
 
         # now we build the canonical codes, replacing the previously calculated codes as we go.
         bitlength = ktable[0][0] # start with smallest code length, always the first entry since sort
@@ -107,21 +104,23 @@ class Huffman:
             code = (code + 1) 
             if n < (numsymbols - 1):
                 code <<= ( ktable[n+1][0] - bitlength )
-            #print("n=" + str(n) + ", bitlength=" + str(k[0]) + ", symbol=" + str(k[1]) + ", code=" + codestring + ", check=" + str(len(codestring)==bitlength))
+            if self.VERBOSE:
+                print("code=" + str(n) + ", bitlength=" + str(k[0]) + ", symbol=" + str(k[1]) + ", code=" + codestring + ", check=" + str(len(codestring)==bitlength))
 
         # build the tables needed for decoding 
         # - a sorted array where array[n] is the number of symbols with bitlength n
         # - an array of the symbols, in sorted ascending order 
         # create a local table for the sorted bitlengths and tables
-        self.table_bitlengths = [0] * (Huffman.MAX_CODE_BIT_LENGTH+1)
+        self.table_bitlengths = [0] * (self.MAX_CODE_BIT_LENGTH+1)
         self.table_symbols = []
         for k in ktable:
             self.table_bitlengths[k[0]] += 1
             self.table_symbols.append(k[1])
 
-        #print("decoder tables (size=" + str(len(self.table_bitlengths)+len(self.table_symbols)) + ")")
-        #print(self.table_bitlengths)
-        #print(self.table_symbols)
+        if self.VERBOSE:
+            print("decoder tables (size=" + str(len(self.table_bitlengths)+len(self.table_symbols)) + ")")
+            print(self.table_bitlengths)
+            print(self.table_symbols)
 
 
 
@@ -133,40 +132,35 @@ class Huffman:
         # 4 byte header, representing:
         #  4 bytes unpacked size with top 3 bits being number of wasted bits in the stream. 
         #  this informs the decoder of the size of the uncompressed stream (ie. number of symbols to decode) and how many bits were wasted
-        num_symbols = len(src_data)
-        #print("num_symbols=" + str(num_symbols))
-        block.append( num_symbols & 255 )
-        block.append( (num_symbols >> 8) & 255 )
-        block.append( (num_symbols >> 16) & 255 )
-        block.append( ((num_symbols >> 24) & 31) )
+        data_size = len(src_data)
+        block.append( data_size & 255 )
+        block.append( (data_size >> 8) & 255 )
+        block.append( (data_size >> 16) & 255 )
+        block.append( ((data_size >> 24) & 31) )
 
         # 1 byte symbol count
-        # We could compute this as the sum of the non-zero bitlengths.  
+        # Note: this could be alternatively calculated as the sum of the non-zero bitlengths.  
         block.append( (len(self.table_symbols) & 255) ) # size of symbol table (0 means 256)          
     
         # emit N bytes for the code bit lengths (ie. the number of symbols that have a code of the given bit length)
-        assert len(self.table_bitlengths) == (Huffman.MAX_CODE_BIT_LENGTH+1)
+        assert len(self.table_bitlengths) == (self.MAX_CODE_BIT_LENGTH+1)
 
         mincodelen = 65536
         maxcodelen = 0
         for v in self.key:
-            #print("key=" + str(v) + ", value=" + self.key[v])
             codelen = len(self.key[v])
             mincodelen = min(mincodelen, codelen)
             maxcodelen = max(maxcodelen, codelen)
 
         #print(" codes from " + str(mincodelen) + " to " + str(maxcodelen) + " bits in length")
         # make sure our codes comply with the length constraint
-        #assert maxcodelen <= Huffman.MAX_CODE_BIT_LENGTH
-
+        #assert maxcodelen <= self.MAX_CODE_BIT_LENGTH
 
         # We exploit the fact that no codes have a bit length of zero, so we use that field to transmit how long the bit length table is (in bytes)
         # This way we have a variable length header, and transmit the minimum amount of header data.
         self.table_bitlengths[0] = maxcodelen #len(self.table_symbols)
         for n in range(maxcodelen+1):
             block.append(self.table_bitlengths[n])
-        #for n in self.table_bitlengths:
-        #    output.append(n)
 
         # emit N bytes for the symbols table
         for n in self.table_symbols:
@@ -175,6 +169,8 @@ class Huffman:
         block += cmp_data
         return block
 
+    # Huffman compress the given bytearray 'phrase' using the tree calculated by build()
+    # Returns a bytearray() of the encoded data, with optional header data
     def encode(self, phrase, header = True):
 
         output = bytearray()
@@ -186,7 +182,7 @@ class Huffman:
         sz = 0
         # for each symbol in the input data, fetch the assigned code and emit it to the output bitstream
         fastcount = 0
-        bitsize_to_count = 7
+        bitsize_to_count = 8
         for c in phrase:
             k = self.key[c]
             sz += len(k)
@@ -202,7 +198,8 @@ class Huffman:
                     currentbyte = 0
                     numbitsfilled = 0                  
 
-        #print(" " + str(fastcount) + " of " + str(len(phrase)) + " symbols were " + str(bitsize_to_count) + " bits or less in size (" + str(fastcount*100/len(phrase)) + "%)")
+        if self.VERBOSE:
+            print(" " + str(fastcount) + " of " + str(len(phrase)) + " symbols were " + str(bitsize_to_count) + " bits or less in size (" + str(fastcount*100/len(phrase)) + "%)")
 
         # align to byte. we could emit code >7 bits in length to prevent decoder finding a spurious code at the end, but its likely
         # some data sets may contain codes <7 bits. Easier to just pad wasted bytes.
@@ -224,18 +221,21 @@ class Huffman:
 
     # test decoder
     def decode(self, data, source):
-        #print("test decode")
 
         # read the header
+        if self.VERBOSE:
+            print("Checking data...")
 
         # get the unpacked size - this tells us how many symbols to decode
         unpacked_size = data[0] + (data[1]<<8) + (data[2]<<16) + ((data[3] & 31)<<24) # uncompressed size
-        #print(" unpacked_size=" + str(unpacked_size))
         wastedbits = data[3] >> 5
-
         
         symbol_table_size = data[4]      # fetch the number of symbols in the symbol table
         length_table_size = data[5] + 1  # fetch the number of entries in the bit length table (+1 because we include zero)
+
+        # interpret 0 as 256
+        if symbol_table_size == 0:
+            symbol_table_size = 256
 
         length_table = data[5:5+length_table_size]
         symbol_table = data[5+length_table_size:5+length_table_size+symbol_table_size]
@@ -247,26 +247,22 @@ class Huffman:
 
         bitbuffer = 0
         numbitsbuffered = 0
-        code = 0                            # word
-        code_size = 0                       # byte
+        code = 0
+        code_size = 0
 
-        firstCodeWithNumBits = 0            # word
-        startIndexForCurrentNumBits = 0     # byte
+        firstCodeWithNumBits = 0
+        startIndexForCurrentNumBits = 0
 
         sourceindex = 0
         unpacked = 0
-        while unpacked < unpacked_size: # currentbyte < len(data):
+        while unpacked < unpacked_size:
 
             # keep the bitbuffer going
             if numbitsbuffered == 0:
                 # we're out of data, so any wip codes are invalid due to byte padding.
-                #if currentbyte >= len(data):
-                #    break
-
                 bitbuffer = data[currentbyte]
                 currentbyte += 1
                 numbitsbuffered += 8
-                
 
             # get a bit
             bit = (bitbuffer & 128) >> 7
@@ -278,18 +274,15 @@ class Huffman:
             code_size += 1
 
             # how many canonical codes have this many bits
-            assert code_size <= Huffman.MAX_CODE_BIT_LENGTH
-            numCodes = length_table[code_size] # self.table_bitlengths[code_size] # byte
-
-            #print("currentbyte=" + str(currentbyte) + ", code_size=" + str(code_size) + ", numcodes=" + str(numCodes) + ", code=" + format(code, '0b') + ", numbitsbuffered=" + str(numbitsbuffered))
-
+            assert code_size <= self.MAX_CODE_BIT_LENGTH
+            numCodes = length_table[code_size]
 
             # if input code so far is within the range of the first code with the current number of bits, it's a match
             indexForCurrentNumBits = code - firstCodeWithNumBits
             if indexForCurrentNumBits < numCodes:
                 code = startIndexForCurrentNumBits + indexForCurrentNumBits
 
-                symbol = symbol_table[code] #self.table_symbols[startIndexForCurrentNumBits + indexForCurrentNumBits]
+                symbol = symbol_table[code]
                 output.append(symbol)
                 expected = source[sourceindex]
                 assert symbol == expected
@@ -303,8 +296,6 @@ class Huffman:
 
                 unpacked += 1          
 
-                #print(" found symbol n=" + str(unpacked) + ", " + str(symbol) + ", expected " + str(expected))
-
             else:
                 # otherwise, move to the next bit length
                 firstCodeWithNumBits = (firstCodeWithNumBits + numCodes) << 1
@@ -312,7 +303,9 @@ class Huffman:
 
         assert len(output) == len(source)
         assert output == source
-        #print(" decoded outputsize="+str(len(output)) + ", expected=" + str(len(source)) )
+
+        if self.VERBOSE:
+            print(" Test decode OK.")
 
 
 
@@ -345,6 +338,7 @@ if __name__ == '__main__':
     src_data = bytearray(open(src, "rb").read())
 
     huffman = Huffman()
+    huffman.VERBOSE = args.verbose
     huffman.build(src_data)
 
     dst_data = huffman.encode( src_data, header = True ) 

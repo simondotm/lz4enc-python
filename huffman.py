@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-# Huffman.py
+# Huffman.py 
 # Succinct Huffman encoder with canonical code output
 # By Simon Morris (https://github.com/simondotm/)
-#
+# See https://github.com/simondotm/lz4enc-python
+# 
 # based on https://github.com/adamldoyle/Huffman
 #
 # Modifications in this version 
 # Copyright (c) 2019 Simon Morris. All rights reserved.
-# See https://github.com/simondotm/lz4enc-python
 #
 # "MIT License":
 # Permission is hereby granted, free of charge, to any person obtaining a copy

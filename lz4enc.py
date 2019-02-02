@@ -2,6 +2,7 @@
 # lz4enc.py
 # Python LZ4 compression module optimized for 8-bit CPU usage
 # By Simon Morris (https://github.com/simondotm/)
+# See https://github.com/simondotm/lz4enc-python
 #
 # Based on/derived from smallz4 
 #
@@ -10,9 +11,8 @@
 # see https://create.stephan-brumme.com/smallz4/ and
 #     https://github.com/stbrumme/smallz4
 #
-# Modifications in this version 
+# Modifications in this version:
 # Copyright (c) 2019 Simon Morris. All rights reserved.
-# See https://github.com/simondotm/lz4enc-python
 #
 # "MIT License":
 # Permission is hereby granted, free of charge, to any person obtaining a copy

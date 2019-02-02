@@ -10,6 +10,7 @@ from collections import defaultdict
 #  1) It does not support EOF huffman codes. This makes it simpler for use with 8-bit/byte based alphabets.
 #     Instead we transmit the unpacked size as an indicator for how many symbols exist in the file. We also transmit the number of padding bits.
 #  2) We only support huffman code sizes upto and including 16 bits in length.
+#  3) Intended for use on small files (ie. < 10Mb), since much of the code uses in-memory manipulation. 
 
 class Huffman:
 
@@ -64,13 +65,14 @@ class Huffman:
         # sort them into bitlength then symbol order
         ktable.sort( key=lambda x: (x[0], x[1]) )
 
-        ## get bit range
-        #minbits = ktable[0][0]
-        #maxbits = ktable[-1][0] # max(self.table)
-        #assert minbits > 0
-        #assert maxbits <= Huffman.MAX_CODE_BIT_LENGTH
-        ##print("maxbits=" + str(maxbits) + ", minbits=" + str(minbits))
-
+        # get bit range
+        minbits = ktable[0][0]
+        maxbits = ktable[-1][0]
+        # make sure our codes comply with the length constraints
+        assert minbits > 0
+        assert maxbits <= Huffman.MAX_CODE_BIT_LENGTH
+        #print("maxbits=" + str(maxbits) + ", minbits=" + str(minbits))
+        #print(str(Huffman.MAX_CODE_BIT_LENGTH))
         #print("sorted canonical table")
         #print(ktable)
 
@@ -105,7 +107,27 @@ class Huffman:
 
 
 
-    def encode(self, phrase, blockHeader = True, tableHeader = True):
+    def addHeader(self, src_data, cmp_data, wastedBits = 0):
+
+        block = bytearray()
+
+        # emit table header for the decoder
+        # 4 byte header, representing:
+        #  4 bytes unpacked size with top 3 bits being number of wasted bits in the stream. 
+        #  this informs the decoder of the size of the uncompressed stream (ie. number of symbols to decode) and how many bits were wasted
+        num_symbols = len(src_data)
+        #print("num_symbols=" + str(num_symbols))
+        block.append( num_symbols & 255 )
+        block.append( (num_symbols >> 8) & 255 )
+        block.append( (num_symbols >> 16) & 255 )
+        block.append( ((num_symbols >> 24) & 31) )
+
+        # 1 byte symbol count
+        # We could compute this as the sum of the non-zero bitlengths.  
+        block.append( (len(self.table_symbols) & 255) ) # size of symbol table (0 means 256)          
+    
+        # emit N bytes for the code bit lengths (ie. the number of symbols that have a code of the given bit length)
+        assert len(self.table_bitlengths) == (Huffman.MAX_CODE_BIT_LENGTH+1)
 
         mincodelen = 65536
         maxcodelen = 0
@@ -116,41 +138,28 @@ class Huffman:
             maxcodelen = max(maxcodelen, codelen)
 
         #print(" codes from " + str(mincodelen) + " to " + str(maxcodelen) + " bits in length")
+        # make sure our codes comply with the length constraint
         #assert maxcodelen <= Huffman.MAX_CODE_BIT_LENGTH
 
+
+        # We exploit the fact that no codes have a bit length of zero, so we use that field to transmit how long the bit length table is (in bytes)
+        # This way we have a variable length header, and transmit the minimum amount of header data.
+        self.table_bitlengths[0] = maxcodelen #len(self.table_symbols)
+        for n in range(maxcodelen+1):
+            block.append(self.table_bitlengths[n])
+        #for n in self.table_bitlengths:
+        #    output.append(n)
+
+        # emit N bytes for the symbols table
+        for n in self.table_symbols:
+            block.append(n & 255)
+
+        block += cmp_data
+        return block
+
+    def encode(self, phrase, header = True):
+
         output = bytearray()
-
-        if blockHeader:
-            # emit optional 4 byte header
-            # 4 bytes unpacked size with top 3 bits being number of wasted bits in the stream. 
-            # this informs the decoder of the size of the uncompressed stream (ie. number of symbols to decode) and how many bits were wasted
-            num_symbols = len(phrase)
-            #print("num_symbols=" + str(num_symbols))
-            output.append( num_symbols & 255 )
-            output.append( (num_symbols >> 8) & 255 )
-            output.append( (num_symbols >> 16) & 255 )
-            output.append( ((num_symbols >> 24) & 31) )
-
-        # send the header for decoding
-        if tableHeader:
-            # 1 byte symbol count
-            # We could compute this as the sum of the non-zero bitlengths.  
-            output.append( len(self.table_symbols) ) # size of symbol table            
-        
-            # emit N bytes for the code bit lengths (ie. the number of symbols that have a code of the given bit length)
-            assert len(self.table_bitlengths) == (Huffman.MAX_CODE_BIT_LENGTH+1)
-
-            # We exploit the fact that no codes have a bit length of zero, so we use that field to transmit how long the bit length table is (in bytes)
-            # This way we have a variable length header, and transmit the minimum amount of header data.
-            self.table_bitlengths[0] = maxcodelen #len(self.table_symbols)
-            for n in range(maxcodelen+1):
-                output.append(self.table_bitlengths[n])
-            #for n in self.table_bitlengths:
-            #    output.append(n)
-
-            # emit N bytes for the symbols table
-            for n in self.table_symbols:
-                output.append(n & 255)
 
         # huffman encode and transmit the data stream
         currentbyte = 0  # The accumulated bits for the current byte, always in the range [0x00, 0xFF]
@@ -158,9 +167,13 @@ class Huffman:
 
         sz = 0
         # for each symbol in the input data, fetch the assigned code and emit it to the output bitstream
+        fastcount = 0
+        bitsize_to_count = 7
         for c in phrase:
             k = self.key[c]
             sz += len(k)
+            if len(k) <= bitsize_to_count:
+                fastcount += 1
             for b in k:
                 bit = int(b)
                 assert bit == 0 or bit == 1
@@ -171,6 +184,8 @@ class Huffman:
                     currentbyte = 0
                     numbitsfilled = 0                  
 
+        #print(" " + str(fastcount) + " of " + str(len(phrase)) + " symbols were " + str(bitsize_to_count) + " bits or less in size (" + str(fastcount*100/len(phrase)) + "%)")
+
         # align to byte. we could emit code >7 bits in length to prevent decoder finding a spurious code at the end, but its likely
         # some data sets may contain codes <7 bits. Easier to just pad wasted bytes.
         wastedbits = (8 - numbitsfilled) & 7
@@ -180,16 +195,21 @@ class Huffman:
             numbitsfilled += 1
         output.append(currentbyte)
 
-        if blockHeader:
-            # set wastedbits on the blockheader
-            output[3] |= (wastedbits << 5)
+        #if blockHeader:
+        #    # set wastedbits on the blockheader
+        #    output[3] |= (wastedbits << 5)
 
 
-        print("output size=" + str(len(output)))
+        # add headers if required.
+        if header:
+            output = self.addHeader(phrase, output, wastedBits = wastedbits)
+
+        #print("")
+        #print("output size=" + str(len(output)))
 
         #open("z.huf", "wb").write( output ) 
         #open("z.hufsrc", "wb").write( phrase ) 
-        if blockHeader and tableHeader:
+        if header:
             # test decode
             self.decode(output, phrase)
 
@@ -225,26 +245,6 @@ class Huffman:
 
         firstCodeWithNumBits = 0            # word
         startIndexForCurrentNumBits = 0     # byte
-
-        # 6502 workspace - assuming max 16-bit codes
-        # init
-        # (2) table_bitlengths - only referenced once, can perhaps be self modified
-        # (2) table_symbols - only referenced once, can perhaps be self modified, implied +16 from table_bitlengths
-        # per stream
-        # (2) stream read ptr (can replace the one used by lz4, so no extra)
-        # (1) bitbuffer
-        # (1) bitsleft
-        # per symbol fetch
-        # (2) code
-        # (2) firstCodeWithNumBits
-        # (1) startIndexForCurrentNumBits
-        # (1) code_size
-        # (1) numCodes
-        # (1) indexForCurrentNumBits
-        # Note that table does not necessarily require MAX_SYMBOLS bytes now, will contain 16 entries plus N symbols. If few symbols occur.
-        # Could be an argument for separate tables per stream if compression ratio beats table overhead.
-        # we cant interleave the lz4 data because variable bytes needed per register stream per frame
-        # therefore we have to maintain 8 huffman contexts also.
 
         sourceindex = 0
         unpacked = 0

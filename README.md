@@ -1,4 +1,6 @@
 # lz4enc-python
+Python LZ4 and Huffman compression tools
+
 Python port of [Stephan Brumme's Smallz4 LZ4 encoder](https://create.stephan-brumme.com/smallz4/)
 
 [@simondotm](https://github.com/simondotm) / 2019 
@@ -17,11 +19,16 @@ This project came about as I was in need of a decent compression algorithm that 
 
 My aim was to take an existing algorithm and customize it for use on some 8-bit 6502 code/data. LZ4 fit the requirements perfectly, and so since I like working in Python I decided to port Stephan's implementation to Python directly from the C++ source.
 
-**WARNING:** It's REALLY SLOW in Python if you use the full optimal parser, but... it suits my needs since I'm only working with small data sets.
+**WARNING:** It's _REALLY SLOW_ in Python if you use the full optimal parser, but... it suits my needs since I'm only working with small data sets.
 
-There are two Python scripts in this project - `smallz4.py` which is a direct line-by-line port of Stephan's `smalllz4` `.cpp/.h` source files. Stephan provides an excellent analysis of how the encoding and decoding techniques work.
+There are three Python scripts in this project:
+1. `smallz4.py` which is a direct line-by-line port of Stephan's `smalllz4` `.cpp/.h` source files. Stephan provides an excellent analysis of how the encoding and decoding techniques work.
 
-The second script is `lz4enc.py` which is a more general purpose variant for use with Python - and has API changes to allow more flexible use of LZ4 compression within other Python based tool chains.
+2. The second script is `lz4enc.py` which is a more general purpose variant of `smallz4` for use with Python - and has some minor API changes to allow more flexible use of LZ4 compression within other Python based tool chains.
+
+3. The third script is `huffman.py` which is a general purpose implementation of a canonical huffman encoder/decoder.
+
+I like my Python scripts simple and self contained, so both `lz4enc.py` and `huffman.py` can be used either as stand alone command line tools or imported as modules.
 
 
 
@@ -30,7 +37,7 @@ The second script is `lz4enc.py` which is a more general purpose variant for use
 
 ### `smallz4.py`
 
-The code isn't guaranteed to be bug free, but so far it checks out! Feel free to make use of it.
+The code isn't guaranteed to be bug free, but so far it seems ok! Feel free to make use of it.
 
 The only change I made was to allow a command line parameter to override the default maximum LZ4 compression "window size" of 65,335 bytes. It's useful for comparison purposes to be able to change this to smaller sizes. LZ4 stores match offsets in 16-bits so using a smaller window does mean the data storage is less efficient, but retains byte stream compatibility.
 
@@ -155,11 +162,13 @@ This is very useful for small files that contain repetitive or common phrases, s
 
 #### Other considerations
 
-Exomiser is great at compression, but it is slow(er) and a complex file format.
+Exomiser is great at compression, but it is slow(er) and a more opaque file format.
+
 ZStandard is interesting, but the implementation is complex.
+
 LZW uses dictionary tables rather than sliding windows, and not suited to low power/memory CPU environments.
 
-LZO/LZMO are other variants I looked at, but settled on LZ4.
+LZO/LZMO are other variants I looked at, but settled on LZ4 due to simplicity of format, compression ratio, decompression speed and availability of implementations that were easy enough to modify for my own purposes.
 
 ## References
 
@@ -176,4 +185,4 @@ LZO/LZMO are other variants I looked at, but settled on LZ4.
 ### Lizard/LZ5
 * If you are interested in how LZ4 can be improved (better compression but with similar high performance decompression) take a look at [Lizard (was LZ5)](https://github.com/inikep/lizard)
 
-All credit and thanks to Stephan for his excellent work providing such excellent and useful resources for LZ4 encoding and decoding.
+All credit and thanks to [Stephan](https://github.com/stbrumme) for his excellent work providing such excellent and useful resources for LZ4 encoding and decoding, and also to [Yann Collet](https://github.com/Cyan4973) for his work on LZ4.

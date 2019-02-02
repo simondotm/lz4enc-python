@@ -875,9 +875,10 @@ class LZ4():
   #-------------------------------------------------------------------------------------------------
   # setCompression
   # Set the encoder match parameter for compression ratio/speed tradeoff
-  # compressionLevel can be 0 (uncompressed) to 1 (low compression, high encoding speed), to 9 (optimal compression, low encoding speed) 
+  # compressionLevel can be 0 (uncompressed), or 1 (low compression, high encoding speed) to 9 (optimal compression, low encoding speed) 
   #-------------------------------------------------------------------------------------------------
   def setCompression(self, compressionLevel, windowSize = 65535):
+    assert windowSize < 65536
     if (compressionLevel >= 9):
       newMaxChainLength = 65536  # "unlimited" because search window contains only 2^16 bytes 
     else:
@@ -889,6 +890,22 @@ class LZ4():
 
     # set the sliding window size, 65535 is the default since that is the maximum supported by the 16-bit offset format (ignoring 0, which is an invalid value)
     self.MaxDistance = windowSize
+
+  #-------------------------------------------------------------------------------------------------
+  # enable a byte optimized compression mode
+  # LZ4 offsets will be output as 8-bits rather than 16-bits, and windowSize will be set to 255
+  # For many data streams this will add a few % to the compression ratio
+  # Note that this will create output that is no longer LZ4 format compatible and the decoder is assumed to be modified accordingly
+  #-------------------------------------------------------------------------------------------------
+  def optimizedCompression(self, enable = True):
+    if enable:
+      self.DistanceByteSize = 1
+      if self.MaxDistance > 255:
+        self.MaxDistance = 255
+    else:
+        self.DistanceByteSize = 2
+
+
 
   def getCompressionLevel(self):
     return self.maxChainLength

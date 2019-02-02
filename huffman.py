@@ -4,6 +4,9 @@
 
 from heapq import *
 import array
+import argparse
+import os
+import sys
 from collections import defaultdict
 
 # Notes about this implementation:
@@ -11,6 +14,21 @@ from collections import defaultdict
 #     Instead we transmit the unpacked size as an indicator for how many symbols exist in the file. We also transmit the number of padding bits.
 #  2) We only support huffman code sizes upto and including 16 bits in length.
 #  3) Intended for use on small files (ie. < 10Mb), since much of the code uses in-memory manipulation. 
+#  4) It generates a canonical code table, and emits a header as follows:
+#       [4 bytes][Uncompressed data size]
+#       [1 byte][Number of symbols Ns in symbol table]
+#       [1 byte][Number of entries Nb in the bitlength table]
+#       [Nb bytes][bit length table]
+#       [Ns bytes][symbol table]
+#       [Data...]
+#  5) See decode() for example parsing
+#
+# TODO: add a peek table
+
+if sys.version_info[0] > 2:
+    print("Python 2 only")
+    sys.exit()
+
 
 class Huffman:
 
@@ -58,7 +76,7 @@ class Huffman:
 
         # convert the tree to an array of (bitlength, symbol) tuples
         ktable = []
-        for n in range(Huffman.MAX_SYMBOLS):
+        for n in range(self.MAX_SYMBOLS):
             if n in self.key:
                 ktable.append( (len(self.key[n]), n ) )
 
@@ -189,26 +207,15 @@ class Huffman:
         # align to byte. we could emit code >7 bits in length to prevent decoder finding a spurious code at the end, but its likely
         # some data sets may contain codes <7 bits. Easier to just pad wasted bytes.
         wastedbits = (8 - numbitsfilled) & 7
-        #print("wastedbits=" + str(wastedbits))
         while (numbitsfilled < 8) and wastedbits:
             currentbyte = (currentbyte << 1) | 1
             numbitsfilled += 1
         output.append(currentbyte)
 
-        #if blockHeader:
-        #    # set wastedbits on the blockheader
-        #    output[3] |= (wastedbits << 5)
-
-
         # add headers if required.
         if header:
             output = self.addHeader(phrase, output, wastedBits = wastedbits)
 
-        #print("")
-        #print("output size=" + str(len(output)))
-
-        #open("z.huf", "wb").write( output ) 
-        #open("z.hufsrc", "wb").write( phrase ) 
         if header:
             # test decode
             self.decode(output, phrase)
@@ -306,3 +313,49 @@ class Huffman:
         assert len(output) == len(source)
         assert output == source
         #print(" decoded outputsize="+str(len(output)) + ", expected=" + str(len(source)) )
+
+
+
+# Determine if running as a script
+if __name__ == '__main__':
+
+    print("Huffman.py : Canonical Huffman compressor")
+    print("Written in 2019 by Simon M, https://github.com/simondotm/")
+    print("")
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument("input", help="read from file [input]")
+    parser.add_argument("output", help="output to file [output]")
+    parser.add_argument("-v", "--verbose", help="Enable verbose mode", action="store_true")
+    args = parser.parse_args()
+
+
+    src = args.input
+    dst = args.output
+    if dst == None:
+        dst = src + ".lz4"
+
+    # check for missing files
+    if not os.path.isfile(src):
+        print("ERROR: File '" + src + "' not found")
+        sys.exit()
+
+    # load the file
+    src_data = bytearray(open(src, "rb").read())
+
+    huffman = Huffman()
+    huffman.build(src_data)
+
+    dst_data = huffman.encode( src_data, header = True ) 
+
+    open(dst, "wb").write(dst_data)
+
+    src_size = len(src_data)
+    dst_size = len(dst_data)
+    if src_size == 0:
+        ratio = 0
+    else:
+        ratio = 100 - (int)((dst_size*100 / src_size))
+
+    print(" Compressed '" + src + "', " + str(src_size) + " into " + str(dst_size) + " bytes => " + str(ratio) + "%")
